@@ -1,4 +1,5 @@
-﻿import { useMemo, useState, type ReactNode } from "react";
+
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bar,
@@ -23,11 +24,19 @@ import {
   type Income,
 } from "./contexts/FinanceContext";
 import { useCategories } from "./contexts/CategoriesContext";
-import InsightsResumoMes from "./components/insights/InsightsResumoMes";
 import ReceiptImportModal from "./components/receipts/ReceiptImportModal";
 import { formatCurrency, formatDate } from "./utils/formatters";
-import { ENTRADAS_COLOR, SAIDAS_COLOR, SALDO_COLOR } from "./constants/chartColors";
-import { getMonthlySummary } from "./utils/finance";
+import {
+  ENTRADAS_COLOR,
+  SAIDAS_COLOR,
+  SALDO_COLOR,
+} from "./constants/chartColors";
+import {
+  getMonthlySummary,
+  getCategoryMonthComparison,
+  getMonthTrend,
+  getIncomeCommitment,
+} from "./utils/finance";
 import type { MonthlySummary } from "./types/finance";
 import PriceResearchPanel from "./components/prices/PriceResearchPanel";
 
@@ -48,7 +57,7 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-// --- Modals ---
+// --- Modais ---
 
 function ExpenseDetailModal({
   expense,
@@ -103,15 +112,10 @@ function ExpenseDetailModal({
               </span>
             }
           />
-          <DetailRow
-            label="Data da saída"
-            value={formatDate(expense.date)}
-          />
+          <DetailRow label="Data da saída" value={formatDate(expense.date)} />
           <DetailRow
             label="Data de vencimento"
-            value={
-              expense.dueDate ? formatDate(expense.dueDate) : "-"
-            }
+            value={expense.dueDate ? formatDate(expense.dueDate) : "-"}
           />
           <DetailRow
             label="Tipo"
@@ -147,9 +151,7 @@ function ExpenseDetailModal({
           {expense.isReceipt && expense.receiptItems?.length ? (
             <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <div className="flex items-center justify-between text-slate-200">
-                <span className="text-sm font-semibold">
-                  Detalhes do cupom
-                </span>
+                <span className="text-sm font-semibold">Detalhes do cupom</span>
                 <span className="text-xs text-slate-400">
                   {expense.receiptItems.length} itens
                 </span>
@@ -166,7 +168,7 @@ function ExpenseDetailModal({
                   <tbody className="divide-y divide-slate-800">
                     {expense.receiptItems.map((item) => (
                       <tr key={item.id}>
-                        <td className="py-1 pr-2 text-slate-100 truncate max-w-[150px]">
+                        <td className="max-w-[150px] truncate py-1 pr-2 text-slate-100">
                           {item.description}
                         </td>
                         <td className="py-1 text-right text-slate-200">
@@ -184,22 +186,21 @@ function ExpenseDetailModal({
           ) : null}
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3 justify-end">
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button
-            className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-600/10 transition-colors"
+            className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-600/10"
             onClick={() => onToggleStatus(nextStatus)}
           >
-            Marcar como{" "}
-            {nextStatus === "paga" ? "paga" : "pendente"}
+            Marcar como {nextStatus === "paga" ? "paga" : "pendente"}
           </button>
           <button
-            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 hover:bg-sky-600/10 transition-colors"
+            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 transition-colors hover:bg-sky-600/10"
             onClick={onEdit}
           >
             Editar saída
           </button>
           <button
-            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 hover:bg-rose-600/10 transition-colors"
+            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
             onClick={onDelete}
           >
             Excluir saída
@@ -248,21 +249,18 @@ function IncomeDetailModal({
             }
           />
           <DetailRow label="Data" value={formatDate(income.date)} />
-          <DetailRow
-            label="Criado em"
-            value={formatDate(income.createdAt)}
-          />
+          <DetailRow label="Criado em" value={formatDate(income.createdAt)} />
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3 justify-end">
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button
-            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 hover:bg-sky-600/10 transition-colors"
+            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 transition-colors hover:bg-sky-600/10"
             onClick={onEdit}
           >
             Editar entrada
           </button>
           <button
-            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 hover:bg-rose-600/10 transition-colors"
+            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
             onClick={onDelete}
           >
             Excluir entrada
@@ -292,42 +290,25 @@ const MonthlyEvolutionTooltip = ({
   if (!active || !payload || payload.length === 0) return null;
 
   const entradas = Number(
-    payload.find((p: MonthlyTooltipItem) => p.dataKey === "entradas")?.value ??
-      0
+    payload.find((p) => p.dataKey === "entradas")?.value ?? 0,
   );
   const saidas = Number(
-    payload.find((p: MonthlyTooltipItem) => p.dataKey === "saidas")?.value ?? 0
+    payload.find((p) => p.dataKey === "saidas")?.value ?? 0,
   );
   const saldo = Number(
-    payload.find((p: MonthlyTooltipItem) => p.dataKey === "saldo")?.value ?? 0
+    payload.find((p) => p.dataKey === "saldo")?.value ?? 0,
   );
 
-  const percentualEntradasAno = Number(
-    payload.find(
-      (p: MonthlyTooltipItem) =>
-        p.dataKey === "percentualEntradasAno"
-    )?.value ?? 0
-  );
-
-  const percentualSaidasAno = Number(
-    payload.find(
-      (p: MonthlyTooltipItem) => p.dataKey === "percentualSaidasAno"
-    )?.value ?? 0
-  );
   const percentualEntradasMes = Number(
-    payload.find(
-      (p: MonthlyTooltipItem) => p.dataKey === "percentualEntradasMes"
-    )?.value ?? 0
+    payload.find((p) => p.dataKey === "percentualEntradasMes")?.value ?? 0,
   );
   const percentualSaidasMes = Number(
-    payload.find(
-      (p: MonthlyTooltipItem) => p.dataKey === "percentualSaidasMes"
-    )?.value ?? 0
+    payload.find((p) => p.dataKey === "percentualSaidasMes")?.value ?? 0,
   );
 
   return (
-    <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs shadow-lg border border-slate-700">
-      <div className="font-medium text-slate-100 mb-1">{label}</div>
+    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-lg">
+      <div className="mb-1 font-medium text-slate-100">{label}</div>
       <div className="space-y-1">
         <div className="flex justify-between gap-4">
           <span className="text-[11px] text-blue-200">Entradas:</span>
@@ -339,7 +320,7 @@ const MonthlyEvolutionTooltip = ({
           </span>
         </div>
         <div className="flex justify-between gap-4">
-          <span className="text-[11px] text-red-200">Sa?das:</span>
+          <span className="text-[11px] text-red-200">Saídas:</span>
           <span className="text-[11px] text-red-100">
             {formatCurrency(saidas)}{" "}
             <span className="text-red-300">
@@ -347,8 +328,8 @@ const MonthlyEvolutionTooltip = ({
             </span>
           </span>
         </div>
-        <div className="flex justify-between gap-4 pt-1 border-t border-slate-700 mt-1">
-          <span className="text-[11px] text-slate-300">Diferen?a:</span>
+        <div className="mt-1 flex justify-between gap-4 border-t border-slate-700 pt-1">
+          <span className="text-[11px] text-slate-300">Diferença:</span>
           <span className="text-[11px] text-slate-100">
             {formatCurrency(saldo)}
           </span>
@@ -376,12 +357,11 @@ const renderSaldoLabel = (props: any) => {
   );
 };
 
-// Donut Chart Custom Label - labels coloridos com sombra e sem cortar embaixo
+// Donut Chart Custom Label
 const renderCustomLabel = (props: any) => {
   const { cx, cy, midAngle, outerRadius, fill, payload, value } = props;
   const RADIAN = Math.PI / 180;
 
-  // distância do label em relação ao donut
   const radius = outerRadius + 28;
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
@@ -395,17 +375,12 @@ const renderCustomLabel = (props: any) => {
         textAnchor={x > cx ? "start" : "end"}
         dominantBaseline="central"
       >
-        {/* Linha 1: nome da categoria (na cor da fatia) */}
         <tspan x={x} dy="-1.1em" fontSize="16" fontWeight="700">
           {payload.name}
         </tspan>
-
-        {/* Linha 2: valor em branco */}
         <tspan x={x} dy="1.2em" fontSize="14" fill="#FFFFFF">
           {formatCurrency(value)}
         </tspan>
-
-        {/* Linha 3: percentual na cor da categoria */}
         <tspan x={x} dy="1.1em" fontSize="13" fill={fill}>
           {payload.percent.toFixed(1)}%
         </tspan>
@@ -414,8 +389,6 @@ const renderCustomLabel = (props: any) => {
   );
 };
 
-
-// Donut tooltip â€“ tipagem simplificada pra nÃ£o encher o saco
 const renderDonutTooltip = (props: any) => {
   const { active, payload } = props;
   if (!active || !payload || !payload.length) return null;
@@ -423,7 +396,7 @@ const renderDonutTooltip = (props: any) => {
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
-      <strong className="block text-sm text-slate-100 mb-1">
+      <strong className="mb-1 block text-sm text-slate-100">
         {item.name}
       </strong>
       <div className="text-xs text-slate-300">
@@ -450,10 +423,12 @@ function CategoryDetailsPanel({
   onExpenseClick: (expense: Expense) => void;
 }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-3">
+    <div className="flex h-full flex-col">
+      <div className="mb-3 flex items-center justify_between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">Detalhes da categoria</h2>
+          <h2 className="text-sm font-semibold text-slate-100">
+            Detalhes da categoria
+          </h2>
           <p className="text-xs text-slate-400">
             Categoria selecionada: {category} · {monthLabel}
           </p>
@@ -466,12 +441,12 @@ function CategoryDetailsPanel({
         </button>
       </div>
 
-      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-2">
+      <div className="max-h-[320px] space-y-2 overflow-y-auto pr-2">
         {expenses.map((expense) => (
           <button
             key={expense.id}
             onClick={() => onExpenseClick(expense)}
-            className="w-full rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left hover:bg-slate-800/60 cursor-pointer transition-colors"
+            className="w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:bg-slate-800/60"
           >
             <div className="flex items-center justify-between">
               <div>
@@ -489,7 +464,7 @@ function CategoryDetailsPanel({
           </button>
         ))}
         {expenses.length === 0 && (
-          <p className="text-sm text-slate-500 text-center py-4">
+          <p className="py-4 text-center text-sm text-slate-500">
             Nenhuma saída nesta categoria.
           </p>
         )}
@@ -498,7 +473,7 @@ function CategoryDetailsPanel({
   );
 }
 
-// --- Main component ---
+// --- Componente principal ---
 
 export default function FinanceDashboard() {
   const {
@@ -515,23 +490,18 @@ export default function FinanceDashboard() {
   const now = new Date();
   const [selectedCategory, setSelectedCategory] =
     useState<string | "todas">("todas");
-  const [viewMode, setViewMode] = useState<
-    "geral" | "saidas" | "entradas"
-  >("geral");
-  const [selectedExpenseId, setSelectedExpenseId] = useState<
-    string | null
-  >(null);
-  const [selectedIncomeId, setSelectedIncomeId] = useState<
-    string | null
-  >(null);
-  const [selectedMonth, setSelectedMonth] = useState<number>(
-    now.getMonth()
+  const [viewMode, setViewMode] = useState<"geral" | "saidas" | "entradas">(
+    "geral",
   );
-  const [selectedYear, setSelectedYear] = useState<number>(
-    now.getFullYear()
+  const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(
+    null,
   );
-  const [isReceiptModalOpen, setReceiptModalOpen] =
-    useState(false);
+  const [selectedIncomeId, setSelectedIncomeId] = useState<string | null>(
+    null,
+  );
+  const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [isReceiptModalOpen, setReceiptModalOpen] = useState(false);
 
   const colorFallbacks = [
     "#0EA5E9",
@@ -548,10 +518,7 @@ export default function FinanceDashboard() {
     categories.forEach((c) => palette.set(c.name, c.color));
     expenses.forEach((e, idx) => {
       if (!palette.has(e.category)) {
-        palette.set(
-          e.category,
-          colorFallbacks[idx % colorFallbacks.length]
-        );
+        palette.set(e.category, colorFallbacks[idx % colorFallbacks.length]);
       }
     });
     return palette;
@@ -562,12 +529,9 @@ export default function FinanceDashboard() {
       expenses.filter((expense) => {
         if (!expense.date) return false;
         const d = new Date(expense.date);
-        return (
-          d.getMonth() === selectedMonth &&
-          d.getFullYear() === selectedYear
-        );
+        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
       }),
-    [expenses, selectedMonth, selectedYear]
+    [expenses, selectedMonth, selectedYear],
   );
 
   const incomesDoMes = useMemo(
@@ -575,40 +539,38 @@ export default function FinanceDashboard() {
       incomes.filter((income) => {
         if (!income.date) return false;
         const d = new Date(income.date);
-        return (
-          d.getMonth() === selectedMonth &&
-          d.getFullYear() === selectedYear
-        );
+        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
       }),
-    [incomes, selectedMonth, selectedYear]
+    [incomes, selectedMonth, selectedYear],
   );
 
   const totalSaidas = useMemo(
-    () => filteredExpenses.reduce((acc, expense) => acc + Math.abs(expense.amount), 0),
-    [filteredExpenses]
+    () =>
+      filteredExpenses.reduce(
+        (acc, expense) => acc + Math.abs(expense.amount),
+        0,
+      ),
+    [filteredExpenses],
   );
 
   const totalEntradas = useMemo(
     () => incomesDoMes.reduce((acc, income) => acc + income.amount, 0),
-    [incomesDoMes]
+    [incomesDoMes],
   );
+
   const saldoMes = totalEntradas - totalSaidas;
 
-  // Donut stats
+  // Donut de categorias
   const categoryStats = useMemo<CategoryDonutItem[]>(() => {
-    const map = new Map<
-      string,
-      { total: number; count: number; color: string }
-    >();
+    const map = new Map<string, { total: number; count: number; color: string }>();
 
     filteredExpenses.forEach((expense) => {
       const current =
-        map.get(expense.category) || {
+        map.get(expense.category) ??
+        {
           total: 0,
           count: 0,
-          color:
-            categoryPalette.get(expense.category) ||
-            colorFallbacks[0],
+          color: categoryPalette.get(expense.category) ?? colorFallbacks[0],
         };
       current.total += Math.abs(expense.amount);
       current.count += 1;
@@ -622,9 +584,7 @@ export default function FinanceDashboard() {
           id: key,
           name: key,
           total: value.total,
-          percent: totalSaidas
-            ? (value.total / totalSaidas) * 100
-            : 0,
+          percent: totalSaidas ? (value.total / totalSaidas) * 100 : 0,
           color: value.color,
         });
       }
@@ -633,48 +593,80 @@ export default function FinanceDashboard() {
     return result.sort((a, b) => b.total - a.total);
   }, [filteredExpenses, categoryPalette, totalSaidas]);
 
-  // History (últimos 6 meses a partir do mês selecionado)
-  const monthlyEvolution = useMemo<MonthlySummary[]>(
+  // Evolução mensal e resumos inteligentes
+  const monthlyEvolution: MonthlySummary[] = useMemo(
     () => getMonthlySummary(expenses, incomes, selectedYear),
-    [expenses, incomes, selectedYear]
+    [expenses, incomes, selectedYear],
+  );
+
+  const categoryComparisons = useMemo(
+    () => getCategoryMonthComparison(expenses, selectedYear, selectedMonth),
+    [expenses, selectedYear, selectedMonth],
+  );
+
+  const [categoryHighlightIndex, setCategoryHighlightIndex] = useState(0);
+
+  useEffect(() => {
+    if (!categoryComparisons.length) {
+      setCategoryHighlightIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setCategoryHighlightIndex(
+        (prev) => (prev + 1) % categoryComparisons.length,
+      );
+    }, 7000);
+    return () => clearInterval(interval);
+  }, [categoryComparisons.length]);
+
+  const highlightedCategory =
+    categoryComparisons.length > 0
+      ? categoryComparisons[categoryHighlightIndex % categoryComparisons.length]
+      : null;
+
+  const monthTrend = useMemo(
+    () => getMonthTrend(expenses, selectedYear, selectedMonth),
+    [expenses, selectedYear, selectedMonth],
+  );
+
+  const incomeCommitment = useMemo(
+    () => getIncomeCommitment(incomes, expenses, selectedYear, selectedMonth),
+    [incomes, expenses, selectedYear, selectedMonth],
   );
 
   const despesasOrdenadas = useMemo(
     () =>
       [...filteredExpenses].sort((a, b) =>
-        (b.date || "").localeCompare(
-          a.date || "",
-          undefined,
-          { sensitivity: "base" }
-        )
+        (b.date || "").localeCompare(a.date || "", undefined, {
+          sensitivity: "base",
+        }),
       ),
-    [filteredExpenses]
+    [filteredExpenses],
+  );
+
+  const topExpenses = useMemo(
+    () => despesasOrdenadas.slice(0, 5),
+    [despesasOrdenadas],
   );
 
   const selectedExpense = useMemo(
-    () =>
-      despesasOrdenadas.find(
-        (d) => d.id === selectedExpenseId
-      ) || null,
-    [despesasOrdenadas, selectedExpenseId]
+    () => despesasOrdenadas.find((d) => d.id === selectedExpenseId) ?? null,
+    [despesasOrdenadas, selectedExpenseId],
   );
 
   const selectedIncome = useMemo(
-    () =>
-      incomesDoMes.find(
-        (inc) => inc.id === selectedIncomeId
-      ) || null,
-    [incomesDoMes, selectedIncomeId]
+    () => incomesDoMes.find((inc) => inc.id === selectedIncomeId) ?? null,
+    [incomesDoMes, selectedIncomeId],
   );
+
   const hasCategorySelected = selectedCategory !== "todas";
+
   const categoryExpenses = useMemo(
     () =>
       hasCategorySelected
-        ? filteredExpenses.filter(
-            (e) => e.category === selectedCategory
-          )
+        ? filteredExpenses.filter((e) => e.category === selectedCategory)
         : [],
-    [filteredExpenses, hasCategorySelected, selectedCategory]
+    [filteredExpenses, hasCategorySelected, selectedCategory],
   );
 
   const handlePrevMonth = () => {
@@ -694,7 +686,7 @@ export default function FinanceDashboard() {
   const currentMonthLabel = new Date(
     selectedYear,
     selectedMonth,
-    1
+    1,
   ).toLocaleDateString("pt-BR", {
     month: "long",
     year: "numeric",
@@ -713,17 +705,13 @@ export default function FinanceDashboard() {
       {/* HEADER */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100">
-            Dashboard
-          </h1>
-          <p className="text-sm text-slate-400">
-            Visão do mês
-          </p>
+          <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
+          <p className="text-sm text-slate-400">Visão do mês</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-3 text-sm text-slate-200">
             <button
-              className="rounded-md border border-slate-700 px-2 py-1 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
+              className="rounded-md border border-slate-700 px-2 py-1 transition-colors hover:border-emerald-500 hover:text-emerald-400"
               onClick={handlePrevMonth}
             >
               {"<"}
@@ -732,14 +720,14 @@ export default function FinanceDashboard() {
               {currentMonthLabel}
             </span>
             <button
-              className="rounded-md border border-slate-700 px-2 py-1 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
+              className="rounded-md border border-slate-700 px-2 py-1 transition-colors hover:border-emerald-500 hover:text-emerald-400"
               onClick={handleNextMonth}
             >
               {">"}
             </button>
           </div>
           <button
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-500 transition-colors"
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-emerald-500"
             onClick={() => setReceiptModalOpen(true)}
           >
             Importar cupom (beta)
@@ -759,15 +747,11 @@ export default function FinanceDashboard() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-400">
-                Entradas - Saídas
-              </p>
+              <p className="text-sm text-slate-400">Entradas - Saídas</p>
               <p className="mt-1 text-lg font-semibold text-slate-100">
                 {formatCurrency(saldoMes)}
               </p>
-              <p className="text-xs text-slate-500">
-                Saldo do mês
-              </p>
+              <p className="text-xs text-slate-500">Saldo do mês</p>
             </div>
             <div className="rounded-md bg-slate-800 p-2 text-slate-100">
               <Wallet2 className="h-6 w-6" />
@@ -785,15 +769,11 @@ export default function FinanceDashboard() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-400">
-                Entradas do período
-              </p>
+              <p className="text-sm text-slate-400">Entradas do período</p>
               <p className="mt-1 text-lg font-semibold text-slate-100">
                 {formatCurrency(totalEntradas)}
               </p>
-              <p className="text-xs text-slate-500">
-                Total recebido
-              </p>
+              <p className="text-xs text-slate-500">Total recebido</p>
             </div>
             <div className="rounded-md bg-slate-800 p-2 text-emerald-400">
               <ArrowUpRight className="h-6 w-6" />
@@ -809,17 +789,13 @@ export default function FinanceDashboard() {
           }`}
           onClick={() => setViewMode("saidas")}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify_between">
             <div>
-              <p className="text-sm text-slate-400">
-                Gastos do período
-              </p>
+              <p className="text-sm text-slate-400">Gastos do período</p>
               <p className="mt-1 text-lg font-semibold text-slate-100">
                 {formatCurrency(totalSaidas)}
               </p>
-              <p className="text-xs text-slate-500">
-                Total gasto
-              </p>
+              <p className="text-xs text-slate-500">Total gasto</p>
             </div>
             <div className="rounded-md bg-slate-800 p-2 text-rose-400">
               <ArrowDownRight className="h-6 w-6" />
@@ -827,10 +803,10 @@ export default function FinanceDashboard() {
           </div>
         </button>
       </div>
-
-      {/* ÃREA PRINCIPAL */}
+      {/* ÁREA PRINCIPAL */}
       {viewMode === "geral" && (
         <>
+          {/* Evolução mensal */}
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-slate-100">
@@ -847,11 +823,27 @@ export default function FinanceDashboard() {
                   margin={{ top: 24, right: 24, bottom: 16, left: -4 }}
                 >
                   <defs>
-                    <filter id="saldoLabelShadow" x="-30%" y="-30%" width="160%" height="160%">
-                      <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#000000" floodOpacity="0.9" />
+                    <filter
+                      id="saldoLabelShadow"
+                      x="-30%"
+                      y="-30%"
+                      width="160%"
+                      height="160%"
+                    >
+                      <feDropShadow
+                        dx="0"
+                        dy="1.5"
+                        stdDeviation="3"
+                        floodColor="#000000"
+                        floodOpacity="0.9"
+                      />
                     </filter>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1f2937" />
+                  <CartesianGrid
+                    stroke="#1f2937"
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="monthLabel"
                     tick={{ fill: "#cbd5e1", fontSize: 12 }}
@@ -860,7 +852,9 @@ export default function FinanceDashboard() {
                   />
                   <YAxis
                     tick={{ fill: "#cbd5e1", fontSize: 12 }}
-                    tickFormatter={(value) => formatCurrency(Number(value ?? 0))}
+                    tickFormatter={(value) =>
+                      formatCurrency(Number(value ?? 0))
+                    }
                     width={90}
                     tickLine={false}
                     axisLine={{ stroke: "#334155" }}
@@ -876,13 +870,17 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="entradas"
                       position="top"
-                      formatter={(value) => formatCurrency(Number(value ?? 0))}
+                      formatter={(value: any) =>
+                        formatCurrency(Number(value ?? 0))
+                      }
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualEntradasMes"
                       position="insideBottom"
-                      formatter={(value) => `${Number(value ?? 0).toFixed(1)}%`}
+                      formatter={(value: any) =>
+                        `${Number(value ?? 0).toFixed(1)}%`
+                      }
                       fill="#bfdbfe"
                       className="text-[11px]"
                     />
@@ -896,13 +894,17 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="saidas"
                       position="top"
-                      formatter={(value) => formatCurrency(Number(value ?? 0))}
+                      formatter={(value: any) =>
+                        formatCurrency(Number(value ?? 0))
+                      }
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualSaidasMes"
                       position="insideBottom"
-                      formatter={(value) => `${Number(value ?? 0).toFixed(1)}%`}
+                      formatter={(value: any) =>
+                        `${Number(value ?? 0).toFixed(1)}%`
+                      }
                       fill="#fecdd3"
                       className="text-[11px]"
                     />
@@ -911,98 +913,106 @@ export default function FinanceDashboard() {
                     type="monotone"
                     dataKey="saldo"
                     name="Saldo"
-                    stroke="#fbbf24"
+                    stroke={SALDO_COLOR}
                     strokeWidth={2}
                     dot={{
                       r: 4,
-                      stroke: "#fbbf24",
+                      stroke: SALDO_COLOR,
                       strokeWidth: 2,
                       fill: "#0f172a",
                     }}
                     activeDot={{ r: 5 }}
                   >
-                    <LabelList dataKey="saldo" position="top" content={renderSaldoLabel} />
+                    <LabelList
+                      dataKey="saldo"
+                      position="top"
+                      content={renderSaldoLabel}
+                    />
                   </Line>
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* LINHA 1: GRÃFICO PIZZA (ESQUERDA) + CATEGORIAS (DIREITA) */}
-          
-          {/* CARD 1: DONUT */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold text-slate-100">
-                Gastos por categoria
-              </h2>
-              <span className="text-xs text-slate-500 capitalize">
-                {currentMonthLabel}
-              </span>
-            </div>
-
-            <div className="flex flex-col items-center justify-center h-full">
-              {/* wrapper com overflow visível pra não cortar labels */}
-              <div className="w-full h-[380px] relative overflow-visible">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart
-                    margin={{
-                      top: 40,
-                      right: 60,
-                      bottom: 90, // margem extra para não cortar os labels de baixo
-                      left: 60,
-                    }}
-                  >
-                    {/* Sombra dos labels */}
-                    <defs>
-                      <filter id="labelShadow" x="-35%" y="-35%" width="170%" height="170%">
-                        <feDropShadow
-                          dx="0"
-                          dy="2"
-                          stdDeviation="6"
-                          floodColor="#000000"
-                          floodOpacity="1"
-                        />
-                      </filter>
-                    </defs>
-
-                    <RechartsTooltip content={renderDonutTooltip} />
-
-                    <Pie
-                      data={categoryStats}
-                      dataKey="total"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={90}
-                      outerRadius={130}
-                      paddingAngle={3}
-                      stroke="#0f172a"
-                      strokeWidth={4}
-                      labelLine={false}
-                      label={renderCustomLabel}
-                    >
-                      {categoryStats.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-          {/* CARD 2: CATEGORIAS + DETALHES */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 flex flex-col h-full">
-            <div className="flex items-center justify-between mb-3">
+          {/* Linha 1: Donut + lista de categorias */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Donut */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+              <div className="mb-2 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-slate-100">
-                  Categorias
+                  Gastos por categoria
                 </h2>
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-slate-500 capitalize">
                   {currentMonthLabel}
                 </span>
               </div>
-            <div className="space-y-2 flex-1 overflow-y-auto max-h-[250px] pr-2">
+
+              <div className="flex h-full flex-col items-center justify-center">
+                <div className="relative h-[380px] w-full overflow-visible">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart
+                      margin={{
+                        top: 40,
+                        right: 60,
+                        bottom: 90,
+                        left: 60,
+                      }}
+                    >
+                      <defs>
+                        <filter
+                          id="labelShadow"
+                          x="-35%"
+                          y="-35%"
+                          width="170%"
+                          height="170%"
+                        >
+                          <feDropShadow
+                            dx="0"
+                            dy="2"
+                            stdDeviation="6"
+                            floodColor="#000000"
+                            floodOpacity="1"
+                          />
+                        </filter>
+                      </defs>
+
+                      <RechartsTooltip content={renderDonutTooltip} />
+
+                      <Pie
+                        data={categoryStats}
+                        dataKey="total"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={90}
+                        outerRadius={130}
+                        paddingAngle={3}
+                        stroke="#0f172a"
+                        strokeWidth={4}
+                        labelLine={false}
+                        label={renderCustomLabel}
+                      >
+                        {categoryStats.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+
+            {/* Lista de categorias + detalhes */}
+            <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900 p-6">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-100">
+                  Categorias
+                </h2>
+                <span className="text-xs text-slate-500 capitalize">
+                  {currentMonthLabel}
+                </span>
+              </div>
+              <div className="max-h-[250px] flex-1 space-y-2 overflow-y-auto pr-2">
                 {categoryStats.map((item) => {
                   const active = selectedCategory === item.name;
                   return (
@@ -1021,7 +1031,7 @@ export default function FinanceDashboard() {
                             className="h-2.5 w-2.5 rounded-full"
                             style={{ background: item.color }}
                           />
-                          <span className="text-sm text-slate-100 font-medium">
+                          <span className="text-sm font-medium text-slate-100">
                             {item.name}
                           </span>
                         </div>
@@ -1038,59 +1048,219 @@ export default function FinanceDashboard() {
                   );
                 })}
                 {categoryStats.length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-4">
+                  <p className="py-4 text-center text-sm text-slate-500">
                     Sem dados para exibir.
                   </p>
                 )}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-slate-800/70" />
+              <div className="mt-4 border-t border-slate-800/70 pt-4" />
 
               {selectedCategory && selectedCategory !== "todas" && (
-              <CategoryDetailsPanel
-                category={selectedCategory}
-                monthLabel={currentMonthLabel}
-                expenses={categoryExpenses}
-                onClear={() => setSelectedCategory("todas")}
-                onExpenseClick={(expense) => setSelectedExpenseId(expense.id)}
-              />
+                <CategoryDetailsPanel
+                  category={selectedCategory}
+                  monthLabel={currentMonthLabel}
+                  expenses={categoryExpenses}
+                  onClear={() => setSelectedCategory("todas")}
+                  onExpenseClick={(expense) =>
+                    setSelectedExpenseId(expense.id)
+                  }
+                />
               )}
             </div>
-
-          {/* LINHA 2: RESUMO DO MÃŠS (ESQUERDA) + PESQUISA DE PREÃ‡OS (DIREITA) */}
-          
-          {/* CARD 3: RESUMO DO MÃŠS */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 h-full">
-            <h2 className="text-lg font-semibold text-slate-100 mb-4">Resumo do mês</h2>
-                    <InsightsResumoMes
-              topExpenses={despesasOrdenadas.slice(0, 5)}
-              totalFixed={despesasOrdenadas
-                .filter((d) => d.isFixed)
-                .reduce((a, b) => a + b.amount, 0)}
-              totalVariable={despesasOrdenadas
-                .filter((d) => !d.isFixed)
-                .reduce((a, b) => a + b.amount, 0)}
-              totalPending={despesasOrdenadas
-                .filter((d) => d.status === "pendente")
-                .reduce((a, b) => a + b.amount, 0)}
-                      totalSaidas={totalSaidas}
-                      selectedCategory={selectedCategory}
-              onClearCategory={() => setSelectedCategory("todas")}
-                    />
           </div>
+          {/* Linha 2: Resumo do mês + pesquisa de preços */}
+          <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+            <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-6">
+              <h2 className="mb-4 text-lg font-semibold text-slate-100">
+                Resumo do mês
+              </h2>
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/* Maior saída */}
+                  {(() => {
+                    const biggestExpense = topExpenses[0];
+                    return (
+                      <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+                        <p className="text-xs text-slate-400">
+                          Maior saída do mês
+                        </p>
+                        <p className="mt-1 text-lg font-semibold text-slate-100">
+                          {biggestExpense
+                            ? `${formatCurrency(
+                                Math.abs(biggestExpense.amount),
+                              )} · ${biggestExpense.category}`
+                            : "-"}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {biggestExpense
+                            ? formatDate(biggestExpense.date)
+                            : "Sem lançamentos"}
+                        </p>
+                      </div>
+                    );
+                  })()}
 
-          {/* CARD 4: PESQUISA DE PREÃ‡OS */}
-          <div className="h-full">
-            <PriceResearchPanel />
+                  {/* Categoria em destaque */}
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+                    <p className="text-xs text-slate-400">
+                      Categoria em destaque
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100">
+                      {highlightedCategory
+                        ? `${highlightedCategory.category} · ${formatCurrency(
+                            highlightedCategory.totalAtual,
+                          )}`
+                        : "-"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {highlightedCategory
+                        ? `${highlightedCategory.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
+                            Math.abs(highlightedCategory.diferencaValor),
+                          )} (${highlightedCategory.diferencaPercentual >= 0 ? "+" : ""}${highlightedCategory.diferencaPercentual.toFixed(
+                            1,
+                          )}%) vs mês passado`
+                        : "Sem variação"}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {highlightedCategory
+                        ? `${highlightedCategory.participacaoNoMes.toFixed(
+                            1,
+                          )}% das saídas do mês`
+                        : ""}
+                    </p>
+                  </div>
+
+                  {/* Tendência do mês */}
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+                    <p className="text-xs text-slate-400">Tendência do mês</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100">
+                      {formatCurrency(monthTrend.totalAtual)} · Saídas
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {`${monthTrend.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
+                        Math.abs(monthTrend.diferencaValor),
+                      )} (${monthTrend.diferencaPercentual >= 0 ? "+" : ""}${monthTrend.diferencaPercentual.toFixed(
+                        1,
+                      )}%) vs média últimos 3 meses`}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Média (3 meses): {formatCurrency(monthTrend.mediaHistorica)}
+                    </p>
+                  </div>
+
+                  {/* Renda comprometida */}
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
+                    <p className="text-xs text-slate-400">Renda comprometida</p>
+                    <p className="mt-1 text-lg font-semibold text-slate-100">
+                      {incomeCommitment.totalEntradasMes > 0
+                        ? `${(
+                            (incomeCommitment.totalSaidasMes /
+                              incomeCommitment.totalEntradasMes) *
+                            100
+                          ).toFixed(1)}%`
+                        : "0.0%"}{" "}
+                      da entrada
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} ·
+                      Avulsas: {formatCurrency(incomeCommitment.totalAvulsas)}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Renda livre do mês: {formatCurrency(saldoMes)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Top 5 saídas */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between pt-2">
+                    <h3 className="text-sm font-semibold text-slate-100">
+                      Top 5 saídas do mês
+                    </h3>
+                    {selectedCategory !== "todas" && (
+                      <button
+                        className="text-xs text-emerald-300 hover:text-emerald-200"
+                        onClick={() => setSelectedCategory("todas")}
+                      >
+                        Filtrando por: {selectedCategory} (clique para limpar)
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="border-b border-slate-800 text-slate-400">
+                        <tr>
+                          <th className="py-2 text-left">Data</th>
+                          <th className="py-2 text-left">Descrição</th>
+                          <th className="py-2 text-left">Categoria</th>
+                          <th className="py-2 text-right">Valor</th>
+                          <th className="py-2 text-right">% do mês</th>
+                          <th className="py-2 text-right">Situação</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {topExpenses.map((expense) => (
+                          <tr key={expense.id}>
+                            <td className="py-2">
+                              {formatDate(expense.date)}
+                            </td>
+                            <td className="py-2">{expense.description}</td>
+                            <td className="py-2">{expense.category}</td>
+                            <td className="py-2 text-right text-rose-300">
+                              - {formatCurrency(Math.abs(expense.amount))}
+                            </td>
+                            <td className="py-2 text-right">
+                              {totalSaidas
+                                ? `${(
+                                    (Math.abs(expense.amount) / totalSaidas) *
+                                    100
+                                  ).toFixed(1)}%`
+                                : "-"}
+                            </td>
+                            <td className="py-2 text-right">
+                              <span
+                                className={`rounded-full px-2 py-1 text-xs ${
+                                  expense.status === "paga"
+                                    ? "bg-emerald-500/10 text-emerald-300"
+                                    : "bg-amber-500/10 text-amber-300"
+                                }`}
+                              >
+                                {expense.status === "paga"
+                                  ? "Paga"
+                                  : "Pendente"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        {!topExpenses.length && (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="py-3 text-center text-slate-400"
+                            >
+                              Sem saídas neste mês.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-full">
+              <PriceResearchPanel />
+            </div>
           </div>
-        </div>
         </>
       )}
 
       {/* TABELA DE ENTRADAS */}
       {viewMode === "entradas" && (
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-100">
               Entradas
             </h2>
@@ -1105,19 +1275,15 @@ export default function FinanceDashboard() {
                   <th className="py-2 text-left">Data</th>
                   <th className="py-2 text-left">Descrição</th>
                   <th className="py-2 text-left">Fonte</th>
-                  <th className="py-2 text-right">
-                    Valor
-                  </th>
+                  <th className="py-2 text-right">Valor</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {incomesDoMes.map((income) => (
                   <tr
                     key={income.id}
-                    className="cursor-pointer hover:bg-slate-800/60 transition-colors"
-                    onClick={() =>
-                      setSelectedIncomeId(income.id)
-                    }
+                    className="cursor-pointer transition-colors hover:bg-slate-800/60"
+                    onClick={() => setSelectedIncomeId(income.id)}
                   >
                     <td className="py-2 text-slate-200">
                       {formatDate(income.date)}
@@ -1128,7 +1294,7 @@ export default function FinanceDashboard() {
                     <td className="py-2 text-slate-200">
                       {income.source}
                     </td>
-                    <td className="py-2 text-right text-emerald-300 font-medium">
+                    <td className="py-2 text-right font-medium text-emerald-300">
                       {formatCurrency(income.amount)}
                     </td>
                   </tr>
@@ -1139,10 +1305,10 @@ export default function FinanceDashboard() {
         </div>
       )}
 
-      {/* TABELA DE SAÃDAS */}
+      {/* TABELA DE SAÍDAS */}
       {viewMode === "saidas" && (
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-100">
               Todas as saídas
             </h2>
@@ -1155,28 +1321,18 @@ export default function FinanceDashboard() {
               <thead className="border-b border-slate-800 text-slate-400">
                 <tr>
                   <th className="py-2 text-left">Data</th>
-                  <th className="py-2 text-left">
-                    Descrição
-                  </th>
-                  <th className="py-2 text-left">
-                    Categoria
-                  </th>
-                  <th className="py-2 text-right">
-                    Valor
-                  </th>
-                  <th className="py-2 text-right">
-                    Situação
-                  </th>
+                  <th className="py-2 text-left">Descrição</th>
+                  <th className="py-2 text-left">Categoria</th>
+                  <th className="py-2 text-right">Valor</th>
+                  <th className="py-2 text-right">Situação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {despesasOrdenadas.map((expense) => (
                   <tr
                     key={expense.id}
-                    className="cursor-pointer hover:bg-slate-800/60 transition-colors"
-                    onClick={() =>
-                      setSelectedExpenseId(expense.id)
-                    }
+                    className="cursor-pointer transition-colors hover:bg-slate-800/60"
+                    onClick={() => setSelectedExpenseId(expense.id)}
                   >
                     <td className="py-2 text-slate-200">
                       {formatDate(expense.date)}
@@ -1187,11 +1343,8 @@ export default function FinanceDashboard() {
                     <td className="py-2 text-slate-200">
                       {expense.category}
                     </td>
-                    <td className="py-2 text-right text-rose-300 font-medium">
-                      -{" "}
-                      {formatCurrency(
-                        Math.abs(expense.amount)
-                      )}
+                    <td className="py-2 text-right font-medium text-rose-300">
+                      - {formatCurrency(Math.abs(expense.amount))}
                     </td>
                     <td className="py-2 text-right">
                       <span
@@ -1201,9 +1354,7 @@ export default function FinanceDashboard() {
                             : "bg-amber-500/10 text-amber-300"
                         }`}
                       >
-                        {expense.status === "paga"
-                          ? "Paga"
-                          : "Pendente"}
+                        {expense.status === "paga" ? "Paga" : "Pendente"}
                       </span>
                     </td>
                   </tr>
@@ -1229,16 +1380,12 @@ export default function FinanceDashboard() {
             setSelectedExpenseId(null);
           }}
           onDelete={() => {
-            if (
-              confirm("Confirma excluir esta saída?")
-            ) {
+            if (confirm("Confirma excluir esta saída?")) {
               deleteExpense(selectedExpense.id);
               setSelectedExpenseId(null);
             }
           }}
-          onEdit={() =>
-            navigate(`/saidas/editar/${selectedExpense.id}`)
-          }
+          onEdit={() => navigate(`/saidas/editar/${selectedExpense.id}`)}
         />
       )}
 
@@ -1247,16 +1394,12 @@ export default function FinanceDashboard() {
           income={selectedIncome}
           onClose={() => setSelectedIncomeId(null)}
           onDelete={() => {
-            if (
-              confirm("Confirma excluir esta entrada?")
-            ) {
+            if (confirm("Confirma excluir esta entrada?")) {
               deleteIncome(selectedIncome.id);
               setSelectedIncomeId(null);
             }
           }}
-          onEdit={() =>
-            navigate(`/entradas/editar/${selectedIncome.id}`)
-          }
+          onEdit={() => navigate(`/entradas/editar/${selectedIncome.id}`)}
         />
       )}
     </div>

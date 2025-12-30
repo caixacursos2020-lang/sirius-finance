@@ -130,7 +130,14 @@ export default function CompareMonthsPage() {
   const monthlyStats: MonthStat[] = useMemo(() => {
     const map = new Map<string, MonthStat>();
     monthsRange.forEach((m) => {
-      map.set(m.label, { mes: m.label, entradas: 0, saidas: 0, saldo: 0 });
+      map.set(m.label, {
+        mes: m.label,
+        entradas: 0,
+        saidas: 0,
+        saldo: 0,
+        pctEntradasMes: 0,
+        pctSaidasMes: 0,
+      });
     });
 
     filteredExpenses.forEach((e) => {
