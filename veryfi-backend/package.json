@@ -1,0 +1,20 @@
+{
+  "name": "veryfi-backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "@veryfi/veryfi-sdk": "^1.4.6",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}

@@ -1,0 +1,1264 @@
+﻿import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Bar,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  LabelList,
+  Legend,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { Wallet2, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import {
+  useFinance,
+  type Expense,
+  type ExpenseStatus,
+  type Income,
+} from "./contexts/FinanceContext";
+import { useCategories } from "./contexts/CategoriesContext";
+import InsightsResumoMes from "./components/insights/InsightsResumoMes";
+import ReceiptImportModal from "./components/receipts/ReceiptImportModal";
+import { formatCurrency, formatDate } from "./utils/formatters";
+import { ENTRADAS_COLOR, SAIDAS_COLOR, SALDO_COLOR } from "./constants/chartColors";
+import { getMonthlySummary } from "./utils/finance";
+import type { MonthlySummary } from "./types/finance";
+import PriceResearchPanel from "./components/prices/PriceResearchPanel";
+
+type CategoryDonutItem = {
+  id: string;
+  name: string;
+  total: number;
+  percent: number;
+  color: string;
+};
+
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-slate-400">{label}</span>
+      <span className="text-right text-slate-100">{value}</span>
+    </div>
+  );
+}
+
+// --- Modals ---
+
+function ExpenseDetailModal({
+  expense,
+  onClose,
+  onToggleStatus,
+  onDelete,
+  onEdit,
+}: {
+  expense: Expense;
+  onClose: () => void;
+  onToggleStatus: (status: ExpenseStatus) => void;
+  onDelete: () => void;
+  onEdit: () => void;
+}) {
+  const { paymentMethods } = useFinance();
+
+  const getPaymentMethodName = (id: string | null | undefined): string => {
+    if (!id) return "Não informado / Outro";
+    const method = paymentMethods.find((m) => m.id === id);
+    return method?.name ?? "Não informado / Outro";
+  };
+
+  const nextStatus: ExpenseStatus =
+    expense.status === "paga" ? "pendente" : "paga";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-100">
+            Detalhes da saída
+          </h3>
+          <button
+            className="text-sm text-slate-400 hover:text-slate-200"
+            onClick={onClose}
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3 text-sm">
+          <DetailRow label="Descrição" value={expense.description} />
+          {expense.receiptStore && (
+            <DetailRow label="Loja" value={expense.receiptStore} />
+          )}
+          <DetailRow label="Categoria" value={expense.category} />
+          <DetailRow
+            label="Valor"
+            value={
+              <span className="text-rose-300">
+                - {formatCurrency(Math.abs(expense.amount))}
+              </span>
+            }
+          />
+          <DetailRow
+            label="Data da saída"
+            value={formatDate(expense.date)}
+          />
+          <DetailRow
+            label="Data de vencimento"
+            value={
+              expense.dueDate ? formatDate(expense.dueDate) : "-"
+            }
+          />
+          <DetailRow
+            label="Tipo"
+            value={expense.isFixed ? "Conta fixa" : "Gasto avulso"}
+          />
+          <DetailRow
+            label="Situação"
+            value={
+              <span
+                className={
+                  expense.status === "paga"
+                    ? "text-emerald-300"
+                    : "text-amber-300"
+                }
+              >
+                {expense.status === "paga" ? "Paga" : "Pendente"}
+              </span>
+            }
+          />
+          <DetailRow
+            label="Recorrência"
+            value={
+              expense.isRecurring
+                ? `Todo dia ${expense.recurrenceDay ?? "-"}`
+                : "Não recorrente"
+            }
+          />
+          <DetailRow
+            label="Forma de pagamento"
+            value={getPaymentMethodName(expense.paymentMethodId)}
+          />
+
+          {expense.isReceipt && expense.receiptItems?.length ? (
+            <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+              <div className="flex items-center justify-between text-slate-200">
+                <span className="text-sm font-semibold">
+                  Detalhes do cupom
+                </span>
+                <span className="text-xs text-slate-400">
+                  {expense.receiptItems.length} itens
+                </span>
+              </div>
+              <div className="max-h-40 overflow-y-auto overflow-x-hidden">
+                <table className="min-w-full text-xs">
+                  <thead className="border-b border-slate-800 text-slate-400">
+                    <tr>
+                      <th className="py-1 text-left">Item</th>
+                      <th className="py-1 text-right">Qtd</th>
+                      <th className="py-1 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {expense.receiptItems.map((item) => (
+                      <tr key={item.id}>
+                        <td className="py-1 pr-2 text-slate-100 truncate max-w-[150px]">
+                          {item.description}
+                        </td>
+                        <td className="py-1 text-right text-slate-200">
+                          {item.quantity || 1}
+                        </td>
+                        <td className="py-1 text-right text-rose-200">
+                          {formatCurrency(item.total)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3 justify-end">
+          <button
+            className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-600/10 transition-colors"
+            onClick={() => onToggleStatus(nextStatus)}
+          >
+            Marcar como{" "}
+            {nextStatus === "paga" ? "paga" : "pendente"}
+          </button>
+          <button
+            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 hover:bg-sky-600/10 transition-colors"
+            onClick={onEdit}
+          >
+            Editar saída
+          </button>
+          <button
+            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 hover:bg-rose-600/10 transition-colors"
+            onClick={onDelete}
+          >
+            Excluir saída
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IncomeDetailModal({
+  income,
+  onClose,
+  onDelete,
+  onEdit,
+}: {
+  income: Income;
+  onClose: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-100">
+            Detalhes da entrada
+          </h3>
+          <button
+            className="text-sm text-slate-400 hover:text-slate-200"
+            onClick={onClose}
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3 text-sm">
+          <DetailRow label="Descrição" value={income.description} />
+          <DetailRow label="Fonte" value={income.source} />
+          <DetailRow
+            label="Valor"
+            value={
+              <span className="text-emerald-300">
+                {formatCurrency(income.amount)}
+              </span>
+            }
+          />
+          <DetailRow label="Data" value={formatDate(income.date)} />
+          <DetailRow
+            label="Criado em"
+            value={formatDate(income.createdAt)}
+          />
+        </div>
+
+        <div className="mt-6 flex flex-wrap gap-3 justify-end">
+          <button
+            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 hover:bg-sky-600/10 transition-colors"
+            onClick={onEdit}
+          >
+            Editar entrada
+          </button>
+          <button
+            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 hover:bg-rose-600/10 transition-colors"
+            onClick={onDelete}
+          >
+            Excluir entrada
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Charts ---
+
+type MonthlyTooltipItem = {
+  dataKey?: string | number;
+  value?: number | string;
+};
+
+const MonthlyEvolutionTooltip = ({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: MonthlyTooltipItem[];
+  label?: string | number;
+}) => {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const entradas = Number(
+    payload.find((p: MonthlyTooltipItem) => p.dataKey === "entradas")?.value ??
+      0
+  );
+  const saidas = Number(
+    payload.find((p: MonthlyTooltipItem) => p.dataKey === "saidas")?.value ?? 0
+  );
+  const saldo = Number(
+    payload.find((p: MonthlyTooltipItem) => p.dataKey === "saldo")?.value ?? 0
+  );
+
+  const percentualEntradasAno = Number(
+    payload.find(
+      (p: MonthlyTooltipItem) =>
+        p.dataKey === "percentualEntradasAno"
+    )?.value ?? 0
+  );
+
+  const percentualSaidasAno = Number(
+    payload.find(
+      (p: MonthlyTooltipItem) => p.dataKey === "percentualSaidasAno"
+    )?.value ?? 0
+  );
+  const percentualEntradasMes = Number(
+    payload.find(
+      (p: MonthlyTooltipItem) => p.dataKey === "percentualEntradasMes"
+    )?.value ?? 0
+  );
+  const percentualSaidasMes = Number(
+    payload.find(
+      (p: MonthlyTooltipItem) => p.dataKey === "percentualSaidasMes"
+    )?.value ?? 0
+  );
+
+  return (
+    <div className="rounded-lg bg-slate-900 px-3 py-2 text-xs shadow-lg border border-slate-700">
+      <div className="font-medium text-slate-100 mb-1">{label}</div>
+      <div className="space-y-1">
+        <div className="flex justify-between gap-4">
+          <span className="text-[11px] text-blue-200">Entradas:</span>
+          <span className="text-[11px] text-blue-100">
+            {formatCurrency(entradas)}{" "}
+            <span className="text-blue-300">
+              ({percentualEntradasMes.toFixed(1)}%)
+            </span>
+          </span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-[11px] text-red-200">Sa?das:</span>
+          <span className="text-[11px] text-red-100">
+            {formatCurrency(saidas)}{" "}
+            <span className="text-red-300">
+              ({percentualSaidasMes.toFixed(1)}%)
+            </span>
+          </span>
+        </div>
+        <div className="flex justify-between gap-4 pt-1 border-t border-slate-700 mt-1">
+          <span className="text-[11px] text-slate-300">Diferen?a:</span>
+          <span className="text-[11px] text-slate-100">
+            {formatCurrency(saldo)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const renderSaldoLabel = (props: any) => {
+  const { x, y, value } = props;
+  if (value == null) return null;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={-6}
+      textAnchor="middle"
+      fill="#facc15"
+      fontSize={11}
+      filter="url(#saldoLabelShadow)"
+    >
+      {formatCurrency(Number(value ?? 0))}
+    </text>
+  );
+};
+
+// Donut Chart Custom Label - labels coloridos com sombra e sem cortar embaixo
+const renderCustomLabel = (props: any) => {
+  const { cx, cy, midAngle, outerRadius, fill, payload, value } = props;
+  const RADIAN = Math.PI / 180;
+
+  // distância do label em relação ao donut
+  const radius = outerRadius + 28;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+  return (
+    <g filter="url(#labelShadow)">
+      <text
+        x={x}
+        y={y}
+        fill={fill}
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+      >
+        {/* Linha 1: nome da categoria (na cor da fatia) */}
+        <tspan x={x} dy="-1.1em" fontSize="16" fontWeight="700">
+          {payload.name}
+        </tspan>
+
+        {/* Linha 2: valor em branco */}
+        <tspan x={x} dy="1.2em" fontSize="14" fill="#FFFFFF">
+          {formatCurrency(value)}
+        </tspan>
+
+        {/* Linha 3: percentual na cor da categoria */}
+        <tspan x={x} dy="1.1em" fontSize="13" fill={fill}>
+          {payload.percent.toFixed(1)}%
+        </tspan>
+      </text>
+    </g>
+  );
+};
+
+
+// Donut tooltip â€“ tipagem simplificada pra nÃ£o encher o saco
+const renderDonutTooltip = (props: any) => {
+  const { active, payload } = props;
+  if (!active || !payload || !payload.length) return null;
+  const item = payload[0].payload as CategoryDonutItem;
+
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
+      <strong className="block text-sm text-slate-100 mb-1">
+        {item.name}
+      </strong>
+      <div className="text-xs text-slate-300">
+        Total: {formatCurrency(item.total)}
+      </div>
+      <div className="text-xs text-sky-300">
+        Participação: {item.percent.toFixed(1)}%
+      </div>
+    </div>
+  );
+};
+
+function CategoryDetailsPanel({
+  category,
+  monthLabel,
+  expenses,
+  onClear,
+  onExpenseClick,
+}: {
+  category: string;
+  monthLabel: string;
+  expenses: Expense[];
+  onClear: () => void;
+  onExpenseClick: (expense: Expense) => void;
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100">Detalhes da categoria</h2>
+          <p className="text-xs text-slate-400">
+            Categoria selecionada: {category} · {monthLabel}
+          </p>
+        </div>
+        <button
+          onClick={onClear}
+          className="text-xs text-emerald-400 hover:text-emerald-300"
+        >
+          Limpar seleção
+        </button>
+      </div>
+
+      <div className="space-y-2 max-h-[320px] overflow-y-auto pr-2">
+        {expenses.map((expense) => (
+          <button
+            key={expense.id}
+            onClick={() => onExpenseClick(expense)}
+            className="w-full rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left hover:bg-slate-800/60 cursor-pointer transition-colors"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-100">
+                  {expense.description}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {formatDate(expense.date)}
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-rose-300">
+                - {formatCurrency(Math.abs(expense.amount))}
+              </p>
+            </div>
+          </button>
+        ))}
+        {expenses.length === 0 && (
+          <p className="text-sm text-slate-500 text-center py-4">
+            Nenhuma saída nesta categoria.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Main component ---
+
+export default function FinanceDashboard() {
+  const {
+    expenses,
+    incomes,
+    loading,
+    updateExpenseStatus,
+    deleteExpense,
+    deleteIncome,
+  } = useFinance();
+  const { categories, loading: loadingCategories } = useCategories();
+  const navigate = useNavigate();
+
+  const now = new Date();
+  const [selectedCategory, setSelectedCategory] =
+    useState<string | "todas">("todas");
+  const [viewMode, setViewMode] = useState<
+    "geral" | "saidas" | "entradas"
+  >("geral");
+  const [selectedExpenseId, setSelectedExpenseId] = useState<
+    string | null
+  >(null);
+  const [selectedIncomeId, setSelectedIncomeId] = useState<
+    string | null
+  >(null);
+  const [selectedMonth, setSelectedMonth] = useState<number>(
+    now.getMonth()
+  );
+  const [selectedYear, setSelectedYear] = useState<number>(
+    now.getFullYear()
+  );
+  const [isReceiptModalOpen, setReceiptModalOpen] =
+    useState(false);
+
+  const colorFallbacks = [
+    "#0EA5E9",
+    "#EC4899",
+    "#8B5CF6",
+    "#22C55E",
+    "#EAB308",
+    "#F97316",
+    "#64748B",
+  ];
+
+  const categoryPalette = useMemo(() => {
+    const palette = new Map<string, string>();
+    categories.forEach((c) => palette.set(c.name, c.color));
+    expenses.forEach((e, idx) => {
+      if (!palette.has(e.category)) {
+        palette.set(
+          e.category,
+          colorFallbacks[idx % colorFallbacks.length]
+        );
+      }
+    });
+    return palette;
+  }, [categories, expenses]);
+
+  const filteredExpenses = useMemo(
+    () =>
+      expenses.filter((expense) => {
+        if (!expense.date) return false;
+        const d = new Date(expense.date);
+        return (
+          d.getMonth() === selectedMonth &&
+          d.getFullYear() === selectedYear
+        );
+      }),
+    [expenses, selectedMonth, selectedYear]
+  );
+
+  const incomesDoMes = useMemo(
+    () =>
+      incomes.filter((income) => {
+        if (!income.date) return false;
+        const d = new Date(income.date);
+        return (
+          d.getMonth() === selectedMonth &&
+          d.getFullYear() === selectedYear
+        );
+      }),
+    [incomes, selectedMonth, selectedYear]
+  );
+
+  const totalSaidas = useMemo(
+    () => filteredExpenses.reduce((acc, expense) => acc + Math.abs(expense.amount), 0),
+    [filteredExpenses]
+  );
+
+  const totalEntradas = useMemo(
+    () => incomesDoMes.reduce((acc, income) => acc + income.amount, 0),
+    [incomesDoMes]
+  );
+  const saldoMes = totalEntradas - totalSaidas;
+
+  // Donut stats
+  const categoryStats = useMemo<CategoryDonutItem[]>(() => {
+    const map = new Map<
+      string,
+      { total: number; count: number; color: string }
+    >();
+
+    filteredExpenses.forEach((expense) => {
+      const current =
+        map.get(expense.category) || {
+          total: 0,
+          count: 0,
+          color:
+            categoryPalette.get(expense.category) ||
+            colorFallbacks[0],
+        };
+      current.total += Math.abs(expense.amount);
+      current.count += 1;
+      map.set(expense.category, current);
+    });
+
+    const result: CategoryDonutItem[] = [];
+    map.forEach((value, key) => {
+      if (value.total > 0) {
+        result.push({
+          id: key,
+          name: key,
+          total: value.total,
+          percent: totalSaidas
+            ? (value.total / totalSaidas) * 100
+            : 0,
+          color: value.color,
+        });
+      }
+    });
+
+    return result.sort((a, b) => b.total - a.total);
+  }, [filteredExpenses, categoryPalette, totalSaidas]);
+
+  // History (últimos 6 meses a partir do mês selecionado)
+  const monthlyEvolution = useMemo<MonthlySummary[]>(
+    () => getMonthlySummary(expenses, incomes, selectedYear),
+    [expenses, incomes, selectedYear]
+  );
+
+  const despesasOrdenadas = useMemo(
+    () =>
+      [...filteredExpenses].sort((a, b) =>
+        (b.date || "").localeCompare(
+          a.date || "",
+          undefined,
+          { sensitivity: "base" }
+        )
+      ),
+    [filteredExpenses]
+  );
+
+  const selectedExpense = useMemo(
+    () =>
+      despesasOrdenadas.find(
+        (d) => d.id === selectedExpenseId
+      ) || null,
+    [despesasOrdenadas, selectedExpenseId]
+  );
+
+  const selectedIncome = useMemo(
+    () =>
+      incomesDoMes.find(
+        (inc) => inc.id === selectedIncomeId
+      ) || null,
+    [incomesDoMes, selectedIncomeId]
+  );
+  const hasCategorySelected = selectedCategory !== "todas";
+  const categoryExpenses = useMemo(
+    () =>
+      hasCategorySelected
+        ? filteredExpenses.filter(
+            (e) => e.category === selectedCategory
+          )
+        : [],
+    [filteredExpenses, hasCategorySelected, selectedCategory]
+  );
+
+  const handlePrevMonth = () => {
+    const date = new Date(selectedYear, selectedMonth, 1);
+    date.setMonth(date.getMonth() - 1);
+    setSelectedMonth(date.getMonth());
+    setSelectedYear(date.getFullYear());
+  };
+
+  const handleNextMonth = () => {
+    const date = new Date(selectedYear, selectedMonth, 1);
+    date.setMonth(date.getMonth() + 1);
+    setSelectedMonth(date.getMonth());
+    setSelectedYear(date.getFullYear());
+  };
+
+  const currentMonthLabel = new Date(
+    selectedYear,
+    selectedMonth,
+    1
+  ).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
+
+  if (loading || loadingCategories) {
+    return (
+      <div className="flex h-64 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
+        Carregando dados...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* HEADER */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-100">
+            Dashboard
+          </h1>
+          <p className="text-sm text-slate-400">
+            Visão do mês
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3 text-sm text-slate-200">
+            <button
+              className="rounded-md border border-slate-700 px-2 py-1 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
+              onClick={handlePrevMonth}
+            >
+              {"<"}
+            </button>
+            <span className="min-w-[140px] text-center font-medium capitalize">
+              {currentMonthLabel}
+            </span>
+            <button
+              className="rounded-md border border-slate-700 px-2 py-1 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
+              onClick={handleNextMonth}
+            >
+              {">"}
+            </button>
+          </div>
+          <button
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-500 transition-colors"
+            onClick={() => setReceiptModalOpen(true)}
+          >
+            Importar cupom (beta)
+          </button>
+        </div>
+      </div>
+
+      {/* CARDS RESUMO */}
+      <div className="grid gap-3 md:grid-cols-3">
+        <button
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            viewMode === "geral"
+              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
+          }`}
+          onClick={() => setViewMode("geral")}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">
+                Entradas - Saídas
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">
+                {formatCurrency(saldoMes)}
+              </p>
+              <p className="text-xs text-slate-500">
+                Saldo do mês
+              </p>
+            </div>
+            <div className="rounded-md bg-slate-800 p-2 text-slate-100">
+              <Wallet2 className="h-6 w-6" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            viewMode === "entradas"
+              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
+          }`}
+          onClick={() => setViewMode("entradas")}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">
+                Entradas do período
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">
+                {formatCurrency(totalEntradas)}
+              </p>
+              <p className="text-xs text-slate-500">
+                Total recebido
+              </p>
+            </div>
+            <div className="rounded-md bg-slate-800 p-2 text-emerald-400">
+              <ArrowUpRight className="h-6 w-6" />
+            </div>
+          </div>
+        </button>
+
+        <button
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            viewMode === "saidas"
+              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
+              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
+          }`}
+          onClick={() => setViewMode("saidas")}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-400">
+                Gastos do período
+              </p>
+              <p className="mt-1 text-lg font-semibold text-slate-100">
+                {formatCurrency(totalSaidas)}
+              </p>
+              <p className="text-xs text-slate-500">
+                Total gasto
+              </p>
+            </div>
+            <div className="rounded-md bg-slate-800 p-2 text-rose-400">
+              <ArrowDownRight className="h-6 w-6" />
+            </div>
+          </div>
+        </button>
+      </div>
+
+      {/* ÃREA PRINCIPAL */}
+      {viewMode === "geral" && (
+        <>
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-100">
+                Evolução mensal
+              </h2>
+              <p className="text-xs text-slate-400">
+                Entradas x saídas · Ano de {selectedYear}
+              </p>
+            </div>
+            <div className="mt-4 h-[320px] md:h-[360px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={monthlyEvolution}
+                  margin={{ top: 24, right: 24, bottom: 16, left: -4 }}
+                >
+                  <defs>
+                    <filter id="saldoLabelShadow" x="-30%" y="-30%" width="160%" height="160%">
+                      <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#000000" floodOpacity="0.9" />
+                    </filter>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1f2937" />
+                  <XAxis
+                    dataKey="monthLabel"
+                    tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                    tickLine={false}
+                    axisLine={{ stroke: "#334155" }}
+                  />
+                  <YAxis
+                    tick={{ fill: "#cbd5e1", fontSize: 12 }}
+                    tickFormatter={(value) => formatCurrency(Number(value ?? 0))}
+                    width={90}
+                    tickLine={false}
+                    axisLine={{ stroke: "#334155" }}
+                  />
+                  <RechartsTooltip content={<MonthlyEvolutionTooltip />} />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Bar
+                    dataKey="entradas"
+                    name="Entradas"
+                    fill={ENTRADAS_COLOR}
+                    radius={[6, 6, 0, 0]}
+                  >
+                    <LabelList
+                      dataKey="entradas"
+                      position="top"
+                      formatter={(value) => formatCurrency(Number(value ?? 0))}
+                      className="text-[11px] fill-slate-100"
+                    />
+                    <LabelList
+                      dataKey="percentualEntradasMes"
+                      position="insideBottom"
+                      formatter={(value) => `${Number(value ?? 0).toFixed(1)}%`}
+                      fill="#bfdbfe"
+                      className="text-[11px]"
+                    />
+                  </Bar>
+                  <Bar
+                    dataKey="saidas"
+                    name="Saídas"
+                    fill={SAIDAS_COLOR}
+                    radius={[6, 6, 0, 0]}
+                  >
+                    <LabelList
+                      dataKey="saidas"
+                      position="top"
+                      formatter={(value) => formatCurrency(Number(value ?? 0))}
+                      className="text-[11px] fill-slate-100"
+                    />
+                    <LabelList
+                      dataKey="percentualSaidasMes"
+                      position="insideBottom"
+                      formatter={(value) => `${Number(value ?? 0).toFixed(1)}%`}
+                      fill="#fecdd3"
+                      className="text-[11px]"
+                    />
+                  </Bar>
+                  <Line
+                    type="monotone"
+                    dataKey="saldo"
+                    name="Saldo"
+                    stroke="#fbbf24"
+                    strokeWidth={2}
+                    dot={{
+                      r: 4,
+                      stroke: "#fbbf24",
+                      strokeWidth: 2,
+                      fill: "#0f172a",
+                    }}
+                    activeDot={{ r: 5 }}
+                  >
+                    <LabelList dataKey="saldo" position="top" content={renderSaldoLabel} />
+                  </Line>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* LINHA 1: GRÃFICO PIZZA (ESQUERDA) + CATEGORIAS (DIREITA) */}
+          
+          {/* CARD 1: DONUT */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-slate-100">
+                Gastos por categoria
+              </h2>
+              <span className="text-xs text-slate-500 capitalize">
+                {currentMonthLabel}
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center justify-center h-full">
+              {/* wrapper com overflow visível pra não cortar labels */}
+              <div className="w-full h-[380px] relative overflow-visible">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart
+                    margin={{
+                      top: 40,
+                      right: 60,
+                      bottom: 90, // margem extra para não cortar os labels de baixo
+                      left: 60,
+                    }}
+                  >
+                    {/* Sombra dos labels */}
+                    <defs>
+                      <filter id="labelShadow" x="-35%" y="-35%" width="170%" height="170%">
+                        <feDropShadow
+                          dx="0"
+                          dy="2"
+                          stdDeviation="6"
+                          floodColor="#000000"
+                          floodOpacity="1"
+                        />
+                      </filter>
+                    </defs>
+
+                    <RechartsTooltip content={renderDonutTooltip} />
+
+                    <Pie
+                      data={categoryStats}
+                      dataKey="total"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={90}
+                      outerRadius={130}
+                      paddingAngle={3}
+                      stroke="#0f172a"
+                      strokeWidth={4}
+                      labelLine={false}
+                      label={renderCustomLabel}
+                    >
+                      {categoryStats.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+          {/* CARD 2: CATEGORIAS + DETALHES */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-slate-100">
+                  Categorias
+                </h2>
+                <span className="text-xs text-slate-500">
+                  {currentMonthLabel}
+                </span>
+              </div>
+            <div className="space-y-2 flex-1 overflow-y-auto max-h-[250px] pr-2">
+                {categoryStats.map((item) => {
+                  const active = selectedCategory === item.name;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setSelectedCategory(item.name)}
+                      className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                        active
+                          ? "border-emerald-500 bg-emerald-500/10"
+                          : "border-slate-800 bg-slate-950 hover:border-emerald-500/60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ background: item.color }}
+                          />
+                          <span className="text-sm text-slate-100 font-medium">
+                            {item.name}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm text-slate-100">
+                            {formatCurrency(item.total)}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {item.percent.toFixed(1)}%
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {categoryStats.length === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-4">
+                    Sem dados para exibir.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-800/70" />
+
+              {selectedCategory && selectedCategory !== "todas" && (
+              <CategoryDetailsPanel
+                category={selectedCategory}
+                monthLabel={currentMonthLabel}
+                expenses={categoryExpenses}
+                onClear={() => setSelectedCategory("todas")}
+                onExpenseClick={(expense) => setSelectedExpenseId(expense.id)}
+              />
+              )}
+            </div>
+
+          {/* LINHA 2: RESUMO DO MÃŠS (ESQUERDA) + PESQUISA DE PREÃ‡OS (DIREITA) */}
+          
+          {/* CARD 3: RESUMO DO MÃŠS */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 h-full">
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">Resumo do mês</h2>
+                    <InsightsResumoMes
+              topExpenses={despesasOrdenadas.slice(0, 5)}
+              totalFixed={despesasOrdenadas
+                .filter((d) => d.isFixed)
+                .reduce((a, b) => a + b.amount, 0)}
+              totalVariable={despesasOrdenadas
+                .filter((d) => !d.isFixed)
+                .reduce((a, b) => a + b.amount, 0)}
+              totalPending={despesasOrdenadas
+                .filter((d) => d.status === "pendente")
+                .reduce((a, b) => a + b.amount, 0)}
+                      totalSaidas={totalSaidas}
+                      selectedCategory={selectedCategory}
+              onClearCategory={() => setSelectedCategory("todas")}
+                    />
+          </div>
+
+          {/* CARD 4: PESQUISA DE PREÃ‡OS */}
+          <div className="h-full">
+            <PriceResearchPanel />
+          </div>
+        </div>
+        </>
+      )}
+
+      {/* TABELA DE ENTRADAS */}
+      {viewMode === "entradas" && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-100">
+              Entradas
+            </h2>
+            <span className="text-sm text-slate-400">
+              {incomesDoMes.length} itens
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="border-b border-slate-800 text-slate-400">
+                <tr>
+                  <th className="py-2 text-left">Data</th>
+                  <th className="py-2 text-left">Descrição</th>
+                  <th className="py-2 text-left">Fonte</th>
+                  <th className="py-2 text-right">
+                    Valor
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {incomesDoMes.map((income) => (
+                  <tr
+                    key={income.id}
+                    className="cursor-pointer hover:bg-slate-800/60 transition-colors"
+                    onClick={() =>
+                      setSelectedIncomeId(income.id)
+                    }
+                  >
+                    <td className="py-2 text-slate-200">
+                      {formatDate(income.date)}
+                    </td>
+                    <td className="py-2 text-slate-200">
+                      {income.description}
+                    </td>
+                    <td className="py-2 text-slate-200">
+                      {income.source}
+                    </td>
+                    <td className="py-2 text-right text-emerald-300 font-medium">
+                      {formatCurrency(income.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TABELA DE SAÃDAS */}
+      {viewMode === "saidas" && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-100">
+              Todas as saídas
+            </h2>
+            <span className="text-sm text-slate-400">
+              {despesasOrdenadas.length} itens
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="border-b border-slate-800 text-slate-400">
+                <tr>
+                  <th className="py-2 text-left">Data</th>
+                  <th className="py-2 text-left">
+                    Descrição
+                  </th>
+                  <th className="py-2 text-left">
+                    Categoria
+                  </th>
+                  <th className="py-2 text-right">
+                    Valor
+                  </th>
+                  <th className="py-2 text-right">
+                    Situação
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {despesasOrdenadas.map((expense) => (
+                  <tr
+                    key={expense.id}
+                    className="cursor-pointer hover:bg-slate-800/60 transition-colors"
+                    onClick={() =>
+                      setSelectedExpenseId(expense.id)
+                    }
+                  >
+                    <td className="py-2 text-slate-200">
+                      {formatDate(expense.date)}
+                    </td>
+                    <td className="py-2 text-slate-200">
+                      {expense.description}
+                    </td>
+                    <td className="py-2 text-slate-200">
+                      {expense.category}
+                    </td>
+                    <td className="py-2 text-right text-rose-300 font-medium">
+                      -{" "}
+                      {formatCurrency(
+                        Math.abs(expense.amount)
+                      )}
+                    </td>
+                    <td className="py-2 text-right">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-medium ${
+                          expense.status === "paga"
+                            ? "bg-emerald-500/10 text-emerald-300"
+                            : "bg-amber-500/10 text-amber-300"
+                        }`}
+                      >
+                        {expense.status === "paga"
+                          ? "Paga"
+                          : "Pendente"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAIS */}
+      <ReceiptImportModal
+        isOpen={isReceiptModalOpen}
+        onClose={() => setReceiptModalOpen(false)}
+      />
+
+      {selectedExpense && (
+        <ExpenseDetailModal
+          expense={selectedExpense}
+          onClose={() => setSelectedExpenseId(null)}
+          onToggleStatus={(status) => {
+            updateExpenseStatus(selectedExpense.id, status);
+            setSelectedExpenseId(null);
+          }}
+          onDelete={() => {
+            if (
+              confirm("Confirma excluir esta saída?")
+            ) {
+              deleteExpense(selectedExpense.id);
+              setSelectedExpenseId(null);
+            }
+          }}
+          onEdit={() =>
+            navigate(`/saidas/editar/${selectedExpense.id}`)
+          }
+        />
+      )}
+
+      {selectedIncome && (
+        <IncomeDetailModal
+          income={selectedIncome}
+          onClose={() => setSelectedIncomeId(null)}
+          onDelete={() => {
+            if (
+              confirm("Confirma excluir esta entrada?")
+            ) {
+              deleteIncome(selectedIncome.id);
+              setSelectedIncomeId(null);
+            }
+          }}
+          onEdit={() =>
+            navigate(`/entradas/editar/${selectedIncome.id}`)
+          }
+        />
+      )}
+    </div>
+  );
+}
