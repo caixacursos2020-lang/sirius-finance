@@ -634,14 +634,24 @@ export default function FinanceDashboard() {
     [incomes, expenses, selectedYear, selectedMonth],
   );
 
+  const hasCategorySelected = selectedCategory !== "todas";
+
+  const baseExpenses = useMemo(
+    () =>
+      hasCategorySelected
+        ? filteredExpenses.filter((e) => e.category === selectedCategory)
+        : filteredExpenses,
+    [filteredExpenses, hasCategorySelected, selectedCategory],
+  );
+
   const despesasOrdenadas = useMemo(
     () =>
-      [...filteredExpenses].sort((a, b) =>
+      [...baseExpenses].sort((a, b) =>
         (b.date || "").localeCompare(a.date || "", undefined, {
           sensitivity: "base",
         }),
       ),
-    [filteredExpenses],
+    [baseExpenses],
   );
 
   const topExpenses = useMemo(
@@ -658,8 +668,6 @@ export default function FinanceDashboard() {
     () => incomesDoMes.find((inc) => inc.id === selectedIncomeId) ?? null,
     [incomesDoMes, selectedIncomeId],
   );
-
-  const hasCategorySelected = selectedCategory !== "todas";
 
   const categoryExpenses = useMemo(
     () =>
@@ -1103,32 +1111,58 @@ export default function FinanceDashboard() {
 
                   {/* Categoria em destaque */}
                   <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-                    <p className="text-xs text-slate-400">
-                      Categoria em destaque
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-slate-100">
-                      {highlightedCategory
-                        ? `${highlightedCategory.category} · ${formatCurrency(
-                            highlightedCategory.totalAtual,
-                          )}`
-                        : "-"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {highlightedCategory
-                        ? `${highlightedCategory.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
-                            Math.abs(highlightedCategory.diferencaValor),
-                          )} (${highlightedCategory.diferencaPercentual >= 0 ? "+" : ""}${highlightedCategory.diferencaPercentual.toFixed(
-                            1,
-                          )}%) vs mês passado`
-                        : "Sem variação"}
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      {highlightedCategory
-                        ? `${highlightedCategory.participacaoNoMes.toFixed(
-                            1,
-                          )}% das saídas do mês`
-                        : ""}
-                    </p>
+                    {(() => {
+                      const isMaiorCategoria =
+                        highlightedCategory &&
+                        categoryComparisons.length > 0 &&
+                        highlightedCategory.category === categoryComparisons[0].category;
+                      const variacaoMaiorGasto =
+                        (highlightedCategory?.diferencaValor ?? 0) > 0;
+                      const variacaoTexto = variacaoMaiorGasto ? "Gasto subiu" : "Gasto caiu";
+                      const variacaoCor = variacaoMaiorGasto ? "text-rose-300" : "text-emerald-300";
+                      const variacaoIcon = variacaoMaiorGasto ? (
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowDownRight className="h-3.5 w-3.5" />
+                      );
+
+                      return (
+                        <>
+                          <p className="text-xs text-slate-400">
+                            {isMaiorCategoria
+                              ? "Categoria em destaque · Maior gasto do mês"
+                              : "Categoria em destaque"}
+                          </p>
+                          <p className="mt-1 text-lg font-semibold text-slate-100">
+                            {highlightedCategory
+                              ? `${highlightedCategory.category} · ${formatCurrency(
+                                  highlightedCategory.totalAtual,
+                                )}`
+                              : "-"}
+                          </p>
+                          <p className={`flex items-center gap-2 text-xs ${variacaoCor}`}>
+                            {variacaoIcon}
+                            <span>{variacaoTexto}</span>
+                            <span className="text-slate-500">
+                              {highlightedCategory
+                                ? `${highlightedCategory.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
+                                    Math.abs(highlightedCategory.diferencaValor),
+                                  )} (${highlightedCategory.diferencaPercentual >= 0 ? "+" : ""}${highlightedCategory.diferencaPercentual.toFixed(
+                                    1,
+                                  )}%) vs mês passado`
+                                : "Sem variação"}
+                            </span>
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {highlightedCategory
+                              ? `${highlightedCategory.participacaoNoMes.toFixed(
+                                  1,
+                                )}% das saídas do mês`
+                              : ""}
+                          </p>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {/* Tendência do mês */}
@@ -1137,13 +1171,29 @@ export default function FinanceDashboard() {
                     <p className="mt-1 text-lg font-semibold text-slate-100">
                       {formatCurrency(monthTrend.totalAtual)} · Saídas
                     </p>
-                    <p className="text-xs text-slate-500">
-                      {`${monthTrend.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
-                        Math.abs(monthTrend.diferencaValor),
-                      )} (${monthTrend.diferencaPercentual >= 0 ? "+" : ""}${monthTrend.diferencaPercentual.toFixed(
-                        1,
-                      )}%) vs média últimos 3 meses`}
-                    </p>
+                    {(() => {
+                      const acimaMedia = monthTrend.totalAtual > monthTrend.mediaHistorica;
+                      const cor = acimaMedia ? "text-rose-300" : "text-emerald-300";
+                      const icone = acimaMedia ? (
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      ) : (
+                        <ArrowDownRight className="h-3.5 w-3.5" />
+                      );
+                      const label = acimaMedia ? "Acima da média (3m)" : "Abaixo da média (3m)";
+                      return (
+                        <p className={`flex items-center gap-2 text-xs ${cor}`}>
+                          {icone}
+                          <span>{label}</span>
+                          <span className="text-slate-500">
+                            {`${monthTrend.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
+                              Math.abs(monthTrend.diferencaValor),
+                            )} (${monthTrend.diferencaPercentual >= 0 ? "+" : ""}${monthTrend.diferencaPercentual.toFixed(
+                              1,
+                            )}%) vs média últimos 3 meses`}
+                          </span>
+                        </p>
+                      );
+                    })()}
                     <p className="mt-1 text-[11px] text-slate-500">
                       Média (3 meses): {formatCurrency(monthTrend.mediaHistorica)}
                     </p>
@@ -1152,19 +1202,29 @@ export default function FinanceDashboard() {
                   {/* Renda comprometida */}
                   <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
                     <p className="text-xs text-slate-400">Renda comprometida</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-100">
-                      {incomeCommitment.totalEntradasMes > 0
-                        ? `${(
-                            (incomeCommitment.totalSaidasMes /
-                              incomeCommitment.totalEntradasMes) *
-                            100
-                          ).toFixed(1)}%`
-                        : "0.0%"}{" "}
-                      da entrada
-                    </p>
+                    {(() => {
+                      const percentual =
+                        incomeCommitment.totalEntradasMes > 0
+                          ? (incomeCommitment.totalSaidasMes / incomeCommitment.totalEntradasMes) * 100
+                          : 0;
+                      const percentualClamped = Math.min(100, Math.max(0, percentual));
+                      return (
+                        <>
+                          <p className="mt-1 text-lg font-semibold text-slate-100">
+                            {percentual.toFixed(1)}% da entrada
+                          </p>
+                          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                            <div
+                              className="h-full rounded-full bg-emerald-500 transition-all"
+                              style={{ width: `${percentualClamped}%` }}
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
                     <p className="text-xs text-slate-500">
-                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} ·
-                      Avulsas: {formatCurrency(incomeCommitment.totalAvulsas)}
+                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} · Avulsas:{" "}
+                      {formatCurrency(incomeCommitment.totalAvulsas)}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
                       Renda livre do mês: {formatCurrency(saldoMes)}
@@ -1174,7 +1234,7 @@ export default function FinanceDashboard() {
 
                 {/* Top 5 saídas */}
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between pt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                     <h3 className="text-sm font-semibold text-slate-100">
                       Top 5 saídas do mês
                     </h3>
@@ -1186,6 +1246,12 @@ export default function FinanceDashboard() {
                         Filtrando por: {selectedCategory} (clique para limpar)
                       </button>
                     )}
+                    <button
+                      className="text-xs text-sky-300 underline underline-offset-4 hover:text-sky-200"
+                      onClick={() => setViewMode("saidas")}
+                    >
+                      Ver todas as saídas
+                    </button>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
@@ -1201,7 +1267,11 @@ export default function FinanceDashboard() {
                       </thead>
                       <tbody className="divide-y divide-slate-800">
                         {topExpenses.map((expense) => (
-                          <tr key={expense.id}>
+                          <tr
+                            key={expense.id}
+                            className="cursor-pointer transition-colors hover:bg-slate-800/50"
+                            onClick={() => setSelectedExpenseId(expense.id)}
+                          >
                             <td className="py-2">
                               {formatDate(expense.date)}
                             </td>
