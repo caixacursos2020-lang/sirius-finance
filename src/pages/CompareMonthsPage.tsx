@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 import {
   Bar,
   ComposedChart,
@@ -14,10 +15,7 @@ import {
 import { useFinance } from "../contexts/FinanceContext";
 import { useCategories } from "../contexts/CategoriesContext";
 import { formatCurrency } from "../utils/formatters";
-import {
-  ENTRADAS_COLOR,
-  SAIDAS_COLOR,
-} from "../constants/chartColors";
+import { ENTRADAS_COLOR, SAIDAS_COLOR } from "../constants/chartColors";
 
 const MONTHS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -31,7 +29,6 @@ type MonthStat = {
   pctEntradasMes: number;
   pctSaidasMes: number;
 };
-
 
 const renderSaldoLabel = (props: any) => {
   const { x, y, value } = props;
@@ -61,6 +58,8 @@ type MonthlyPoint = {
   saldo: number;
   diffEntradasPercent?: number;
   diffSaidasPercent?: number;
+  pctEntradasMes: number;
+  pctSaidasMes: number;
 };
 
 export default function CompareMonthsPage() {
@@ -87,6 +86,29 @@ export default function CompareMonthsPage() {
       setEndMonth(startMonth);
     }
   }, [endMonth, startMonth]);
+
+  const setPeriodoPreset = (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => {
+    if (preset === "anoInteiro") {
+      setStartMonth(0);
+      setEndMonth(11);
+      return;
+    }
+    if (preset === "primeiroSemestre") {
+      setStartMonth(0);
+      setEndMonth(5);
+      return;
+    }
+    if (preset === "segundoSemestre") {
+      setStartMonth(6);
+      setEndMonth(11);
+      return;
+    }
+    const maxMonth = year === now.getFullYear() ? now.getMonth() : 11;
+    const end = Math.min(11, Math.max(0, maxMonth));
+    const start = Math.max(0, end - 2);
+    setStartMonth(start);
+    setEndMonth(end);
+  };
 
   const monthsRange = useMemo(() => {
     const list: { label: string; month: number; year: number }[] = [];
@@ -167,9 +189,43 @@ export default function CompareMonthsPage() {
     });
   }, [filteredExpenses, filteredIncomes, monthsRange]);
 
-  const totalEntradas = monthlyStats.reduce((acc, m) => acc + m.entradas, 0);
-  const totalSaidas = monthlyStats.reduce((acc, m) => acc + m.saidas, 0);
-  const saldoPeriodo = totalEntradas - totalSaidas;
+  const filteredStats = monthlyStats;
+
+  const totalEntradasPeriodo = filteredStats.reduce(
+    (acc, mes) => acc + (mes.entradas ?? 0),
+    0,
+  );
+
+  const totalSaidasPeriodo = filteredStats.reduce(
+    (acc, mes) => acc + (mes.saidas ?? 0),
+    0,
+  );
+
+  const saldoPeriodo = totalEntradasPeriodo - totalSaidasPeriodo;
+
+  const percentSaidasSobreEntradas =
+    totalEntradasPeriodo > 0
+      ? (totalSaidasPeriodo / totalEntradasPeriodo) * 100
+      : 0;
+
+  const melhorMes =
+    filteredStats.length > 0
+      ? filteredStats.reduce((best, mes) =>
+          mes.saldo > best.saldo ? mes : best,
+        )
+      : null;
+
+  const piorMes =
+    filteredStats.length > 0
+      ? filteredStats.reduce((worst, mes) =>
+          mes.saldo < worst.saldo ? mes : worst,
+        )
+      : null;
+
+  const mediaSaldoMensal =
+    filteredStats.length > 0 ? saldoPeriodo / filteredStats.length : 0;
+
+  const labelPeriodo = `${MONTHS[startMonth]} a ${MONTHS[endMonth]} de ${year}`;
 
   const chartData: MonthlyPoint[] = monthlyStats.map((m) => {
     const monthIdx = Number(m.mes.slice(5, 7)) - 1;
@@ -192,43 +248,26 @@ export default function CompareMonthsPage() {
     };
   });
 
-  const totalIncomesFiltered = useMemo(
-    () => filteredIncomes.reduce((acc, inc) => acc + inc.amount, 0),
-    [filteredIncomes]
-  );
-
-  const totalExpensesFiltered = useMemo(
-    () => filteredExpenses.reduce((acc, exp) => acc + Math.abs(exp.amount), 0),
-    [filteredExpenses]
-  );
-
-  const saldoFiltered = useMemo(
-    () => totalIncomesFiltered - totalExpensesFiltered,
-    [totalExpensesFiltered, totalIncomesFiltered]
-  );
-
-  const percentSaidasSobreEntradas = useMemo(() => {
-    if (totalIncomesFiltered === 0 && totalExpensesFiltered === 0) return 0;
-    if (totalIncomesFiltered === 0 && totalExpensesFiltered > 0) return Infinity;
-    return (totalExpensesFiltered / totalIncomesFiltered) * 100;
-  }, [totalExpensesFiltered, totalIncomesFiltered]);
-
   const renderTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const entry = payload[0].payload as (typeof chartData)[0];
     return (
       <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-100">
-        <p className="font-semibold mb-1">{label}</p>
+        <p className="mb-1 font-semibold">{label}</p>
         <p>Entradas: {formatCurrency(entry.entradas)}</p>
         <p>Saídas: {formatCurrency(entry.saidas)}</p>
         <p>Saldo: {formatCurrency(entry.saldo)}</p>
         {entry.diffEntradasPercent !== undefined && (
-          <p>Var. Entradas: {entry.diffEntradasPercent >= 0 ? "+" : ""}
-            {entry.diffEntradasPercent.toFixed(1)}%</p>
+          <p>
+            Var. Entradas: {entry.diffEntradasPercent >= 0 ? "+" : ""}
+            {entry.diffEntradasPercent.toFixed(1)}%
+          </p>
         )}
         {entry.diffSaidasPercent !== undefined && (
-          <p>Var. Saídas: {entry.diffSaidasPercent >= 0 ? "+" : ""}
-            {entry.diffSaidasPercent.toFixed(1)}%</p>
+          <p>
+            Var. Saídas: {entry.diffSaidasPercent >= 0 ? "+" : ""}
+            {entry.diffSaidasPercent.toFixed(1)}%
+          </p>
         )}
       </div>
     );
@@ -260,6 +299,7 @@ export default function CompareMonthsPage() {
           endMonth={endMonth}
           onChangeStart={setStartMonth}
           onChangeEnd={setEndMonth}
+          onSelectPreset={setPeriodoPreset}
         />
 
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-3">
@@ -291,46 +331,145 @@ export default function CompareMonthsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="Entradas (período filtrado)"
-          value={formatCurrency(totalIncomesFiltered)}
-          subtitle="Somando todas as entradas que respeitam os filtros atuais."
-        />
-        <MetricCard
-          title="Saídas (período filtrado)"
-          value={formatCurrency(totalExpensesFiltered)}
-          subtitle="Somando todas as saídas que respeitam os filtros atuais."
-        />
-        <MetricCard
-          title="Saldo (Entradas - Saídas)"
-          valueClassName={saldoFiltered >= 0 ? "text-emerald-300" : "text-rose-300"}
-          value={formatCurrency(saldoFiltered)}
-          subtitle={
-            saldoFiltered >= 0
-              ? "Você está no positivo neste recorte."
-              : "Você gastou mais do que entrou neste recorte."
-          }
-        />
-        <MetricCard
-          title="Relação saídas x entradas"
-          value={
-            percentSaidasSobreEntradas === Infinity
-              ? "∞% das entradas"
-              : `${percentSaidasSobreEntradas.toFixed(1)}% das entradas`
-          }
-          subtitle={
-            percentSaidasSobreEntradas > 100
-              ? `As saídas representam ${percentSaidasSobreEntradas === Infinity ? "∞" : percentSaidasSobreEntradas.toFixed(1)}% das entradas (você gastou mais do que entrou).`
-              : `As saídas representam ${percentSaidasSobreEntradas === Infinity ? "∞" : percentSaidasSobreEntradas.toFixed(1)}% das entradas (situação equilibrada ou positiva).`
-          }
-        />
+      <div className="grid gap-4 lg:grid-cols-4 xl:grid-cols-6">
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Entradas (período filtrado)</p>
+          <p className="mt-2 text-lg font-semibold text-emerald-300">
+            {formatCurrency(totalEntradasPeriodo)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Somando todas as entradas que respeitam os filtros.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Saídas (período filtrado)</p>
+          <p className="mt-2 text-lg font-semibold text-rose-300">
+            - {formatCurrency(totalSaidasPeriodo)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Somando todas as saídas que respeitam os filtros.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Saldo do período</p>
+          <p
+            className={clsx(
+              "mt-2 text-lg font-semibold",
+              saldoPeriodo >= 0 ? "text-emerald-300" : "text-rose-300",
+            )}
+          >
+            {formatCurrency(saldoPeriodo)}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Entradas - saídas no recorte atual.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Relação saídas x entradas</p>
+          <p className="mt-2 text-lg font-semibold text-slate-100">
+            {percentSaidasSobreEntradas.toFixed(1)}%
+          </p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            As saídas representam essa porcentagem das entradas.
+          </p>
+          <span
+            className={clsx(
+              "mt-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium",
+              percentSaidasSobreEntradas > 100
+                ? "bg-rose-500/10 text-rose-300"
+                : percentSaidasSobreEntradas > 80
+                  ? "bg-amber-500/10 text-amber-300"
+                  : "bg-emerald-500/10 text-emerald-300",
+            )}
+          >
+            {percentSaidasSobreEntradas > 100
+              ? "Gastando mais do que entra"
+              : percentSaidasSobreEntradas > 80
+                ? "Zona de atenção"
+                : "Dentro de um nível saudável"}
+          </span>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Melhor mês (saldo)</p>
+          <p className="mt-2 text-sm font-semibold text-slate-100">
+            {melhorMes ? `${MONTHS[Number(melhorMes.mes.slice(5, 7)) - 1]}/${melhorMes.mes.slice(2, 4)}` : "-"}
+          </p>
+          <p className="mt-1 text-lg font-semibold text-emerald-300">
+            {melhorMes ? formatCurrency(melhorMes.saldo) : "-"}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <p className="text-xs text-slate-400">Pior mês (saldo)</p>
+          <p className="mt-2 text-sm font-semibold text-slate-100">
+            {piorMes ? `${MONTHS[Number(piorMes.mes.slice(5, 7)) - 1]}/${piorMes.mes.slice(2, 4)}` : "-"}
+          </p>
+          <p className="mt-1 text-lg font-semibold text-rose-300">
+            {piorMes ? formatCurrency(piorMes.saldo) : "-"}
+          </p>
+        </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <MetricCard title="Total de entradas" value={formatCurrency(totalEntradas)} subtitle="Período filtrado" />
-        <MetricCard title="Total de saídas" value={formatCurrency(totalSaidas)} subtitle="Categorias selecionadas" />
-        <MetricCard title="Saldo" value={formatCurrency(saldoPeriodo)} subtitle="Entradas - Saídas" />
+      <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-200">
+        <h3 className="mb-1 text-sm font-semibold text-slate-100">Resumo inteligente do período</h3>
+        <p className="text-sm text-slate-300">
+          {filteredStats.length === 0 ? (
+            <>Nenhum lançamento encontrado para os filtros atuais.</>
+          ) : (
+            <>
+              Entre <span className="font-semibold">{labelPeriodo}</span> você recebeu{" "}
+              <span className="font-semibold">{formatCurrency(totalEntradasPeriodo)}</span>, gastou{" "}
+              <span className="font-semibold">{formatCurrency(totalSaidasPeriodo)}</span> e fechou o período com{" "}
+              <span
+                className={
+                  saldoPeriodo >= 0 ? "text-emerald-300 font-semibold" : "text-rose-300 font-semibold"
+                }
+              >
+                {formatCurrency(saldoPeriodo)}
+              </span>
+              .
+              {melhorMes && (
+                <>
+                  {" "}Seu melhor mês foi{" "}
+                  <span className="font-semibold">
+                    {`${MONTHS[Number(melhorMes.mes.slice(5, 7)) - 1]}/${melhorMes.mes.slice(0, 4)}`}
+                  </span>{" "}
+                  com saldo de{" "}
+                  <span className="font-semibold">
+                    {formatCurrency(melhorMes.saldo)}
+                  </span>
+                  .
+                </>
+              )}
+              {piorMes && (
+                <>
+                  {" "}O pior mês foi{" "}
+                  <span className="font-semibold">
+                    {`${MONTHS[Number(piorMes.mes.slice(5, 7)) - 1]}/${piorMes.mes.slice(0, 4)}`}
+                  </span>{" "}
+                  com saldo de{" "}
+                  <span className="font-semibold">
+                    {formatCurrency(piorMes.saldo)}
+                  </span>
+                  .
+                </>
+              )}
+              {" "}As saídas representam{" "}
+              <span className="font-semibold">
+                {percentSaidasSobreEntradas.toFixed(1)}%
+              </span>{" "}
+              das entradas. Média de saldo mensal:{" "}
+              <span className={mediaSaldoMensal >= 0 ? "text-emerald-300 font-semibold" : "text-rose-300 font-semibold"}>
+                {formatCurrency(mediaSaldoMensal)}
+              </span>
+              .
+            </>
+          )}
+        </p>
       </div>
 
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -357,7 +496,7 @@ export default function CompareMonthsPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis dataKey="label" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" tickFormatter={(val) => `R$ ${val / 1000}k`} />
+              <YAxis stroke="#94a3b8" tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`} />
               <Tooltip content={renderTooltip} />
               <Legend />
               <Bar
@@ -475,42 +614,59 @@ export default function CompareMonthsPage() {
   );
 }
 
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  valueClassName,
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-      <p className="text-xs text-slate-400">{title}</p>
-      <p className={`mt-1 text-lg font-semibold text-slate-100 ${valueClassName ?? ""}`}>{value}</p>
-      <p className="text-xs text-slate-500">{subtitle}</p>
-    </div>
-  );
-}
-
 function MonthRangePicker({
   title,
   startMonth,
   endMonth,
   onChangeStart,
   onChangeEnd,
+  onSelectPreset,
 }: {
   title: string;
   startMonth: number;
   endMonth: number;
   onChangeStart: (m: number) => void;
   onChangeEnd: (m: number) => void;
+  onSelectPreset: (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => void;
 }) {
+  const isPresetActive = (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => {
+    if (preset === "anoInteiro") return startMonth === 0 && endMonth === 11;
+    if (preset === "primeiroSemestre") return startMonth === 0 && endMonth === 5;
+    if (preset === "segundoSemestre") return startMonth === 6 && endMonth === 11;
+    if (preset === "ultimos3") return endMonth - startMonth === 2;
+    return false;
+  };
+
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-3">
-      <h2 className="text-lg font-semibold">{title}</h2>
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">{title}</h2>
+      </div>
+      <div className="flex flex-wrap gap-2 text-sm">
+        {[
+          { key: "anoInteiro", label: "Ano inteiro" },
+          { key: "primeiroSemestre", label: "1º semestre" },
+          { key: "segundoSemestre", label: "2º semestre" },
+          { key: "ultimos3", label: "Últimos 3 meses" },
+        ].map((preset) => {
+          const active = isPresetActive(preset.key as any);
+          return (
+            <button
+              key={preset.key}
+              className={clsx(
+                "rounded-full border px-3 py-1 transition",
+                active
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-slate-700 bg-slate-800 text-slate-300 hover:border-emerald-500/60",
+              )}
+              onClick={() => onSelectPreset(preset.key as any)}
+              type="button"
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="space-y-1">
           <label className="block text-sm font-medium">Início</label>
