@@ -1,6 +1,7 @@
 import Tesseract from "tesseract.js";
 import { parseReceiptText, type ParsedReceipt } from "../utils/receiptParser";
-import { type Receipt, type ReceiptItem } from "../types/finance";
+import { type Receipt, type ReceiptItem, type ReceiptSummary } from "../types/finance";
+import { processReceiptWithVeryfi } from "./veryfiApi";
 
 type ParsedReceiptLineItem = {
   id?: string | number;
@@ -82,6 +83,46 @@ const buildReceipt = (parsed: ParsedReceipt, rawText: string): Receipt => {
   };
 };
 
+const buildReceiptFromVeryfiSummary = (summary: ReceiptSummary): Receipt => {
+  const items: ReceiptItem[] = (summary.items || []).map((item) => {
+    const qty = item.quantity && item.quantity > 0 ? item.quantity : 1;
+    const total = Number(item.total ?? 0);
+    const unit =
+      item.unit_price !== undefined && item.unit_price !== null
+        ? item.unit_price
+        : qty
+          ? total / qty
+          : total;
+
+    return {
+      id: typeof item.id === "number" ? item.id.toString() : item.id || crypto.randomUUID(),
+      description: item.description || "Item",
+      quantity: qty,
+      unitPrice: unit,
+      unit_price: item.unit_price,
+      total,
+    };
+  });
+
+  const itemsTotal = Number(items.reduce((acc, it) => acc + it.total, 0).toFixed(2));
+
+  return {
+    id: crypto.randomUUID(),
+    storeName: summary.store || "Cupom",
+    date: summary.purchase_date ? summary.purchase_date.slice(0, 10) : new Date().toISOString().slice(0, 10),
+    total: summary.total_amount ?? itemsTotal,
+    items,
+    rawText: "Importado via Veryfi",
+    rawTotalFromReceipt: summary.total_amount ?? itemsTotal,
+    itemsTotal,
+    suggestedCategory: summary.suggestedCategory ?? null,
+    warnings:
+      Math.abs(itemsTotal - (summary.total_amount ?? itemsTotal)) > 0.05
+        ? ["A soma dos itens difere do total retornado pela Veryfi."]
+        : [],
+  };
+};
+
 export async function ocrReceiptFromFile(file: File): Promise<ParsedReceipt> {
   const { data } = await Tesseract.recognize(file, "por", {
     tessedit_pageseg_mode: 6,
@@ -104,4 +145,18 @@ export async function readReceiptFromImage(file: File): Promise<Receipt> {
   console.groupEnd();
 
   return buildReceipt(parsed, rawText);
+}
+
+export async function readReceiptViaVeryfi(file: File): Promise<Receipt> {
+  const summary = await processReceiptWithVeryfi(file);
+  return buildReceiptFromVeryfiSummary(summary);
+}
+
+export async function readReceiptSmart(file: File): Promise<Receipt> {
+  try {
+    return await readReceiptViaVeryfi(file);
+  } catch (error) {
+    console.error("[receipt] Falha no Veryfi, usando fallback OCR local:", error);
+    return readReceiptFromImage(file);
+  }
 }

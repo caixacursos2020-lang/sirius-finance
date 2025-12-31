@@ -27,6 +27,7 @@ export interface VeryfiResponse {
   raw: any;
   summary: VeryfiSummary;
   message?: string;
+  veryfi?: unknown;
 }
 
 const normalizeNumber = (value: unknown): number | undefined => {
@@ -74,25 +75,40 @@ const mapVeryfiSummaryToReceipt = (summary: VeryfiSummary): ReceiptSummary => {
   };
 };
 
-export async function uploadReceiptToVeryfi(file: File): Promise<ReceiptSummary> {
+export async function processReceiptWithVeryfi(file: File): Promise<ReceiptSummary> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch("http://localhost:3333/api/veryfi/receipt", {
-    method: "POST",
-    body: formData,
-  });
+  const baseUrl = import.meta.env.VITE_VERYFI_PROXY_URL;
 
-  if (!response.ok) {
-    const message = `Erro ao enviar cupom: ${response.status} ${response.statusText}`;
+  if (!baseUrl) {
+    throw new Error("VITE_VERYFI_PROXY_URL não configurada no frontend (.env.local).");
+  }
+
+  try {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      const message = `Erro ao enviar cupom: ${response.status} ${response.statusText}${
+        text ? ` - ${text}` : ""
+      }`;
+      throw new Error(message);
+    }
+
+    const data = (await response.json()) as VeryfiResponse;
+
+    if (!data.ok || !data.summary) {
+      throw new Error(data.message || "Resposta inválida do backend Veryfi");
+    }
+
+    return mapVeryfiSummaryToReceipt(data.summary);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Falha ao enviar para o backend Veryfi.";
     throw new Error(message);
   }
-
-  const data = (await response.json()) as VeryfiResponse;
-
-  if (!data.ok || !data.summary) {
-    throw new Error(data.message || "Resposta invalida do backend Veryfi");
-  }
-
-  return mapVeryfiSummaryToReceipt(data.summary);
 }

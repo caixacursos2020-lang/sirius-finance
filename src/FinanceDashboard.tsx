@@ -48,6 +48,11 @@ type CategoryDonutItem = {
   color: string;
 };
 
+const TITLE_SHADOW = {
+  textShadow:
+    "0 3px 10px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.75), 0 0 18px rgba(0,0,0,0.6)",
+};
+
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between">
@@ -87,7 +92,10 @@ function ExpenseDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-100">
+          <h3
+            className="text-lg font-semibold text-slate-100"
+            style={TITLE_SHADOW}
+          >
             Detalhes da saída
           </h3>
           <button
@@ -226,7 +234,10 @@ function IncomeDetailModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-100">
+          <h3
+            className="text-lg font-semibold text-slate-100"
+            style={TITLE_SHADOW}
+          >
             Detalhes da entrada
           </h3>
           <button
@@ -426,9 +437,12 @@ function CategoryDetailsPanel({
     <div className="flex h-full flex-col">
       <div className="mb-3 flex items-center justify_between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-100">
-            Detalhes da categoria
-          </h2>
+            <h2
+              className="text-sm font-semibold text-slate-100"
+              style={TITLE_SHADOW}
+            >
+              Detalhes da categoria
+            </h2>
           <p className="text-xs text-slate-400">
             Categoria selecionada: {category} · {monthLabel}
           </p>
@@ -593,6 +607,7 @@ export default function FinanceDashboard() {
     return result.sort((a, b) => b.total - a.total);
   }, [filteredExpenses, categoryPalette, totalSaidas]);
 
+
   // Evolução mensal e resumos inteligentes
   const monthlyEvolution: MonthlySummary[] = useMemo(
     () => getMonthlySummary(expenses, incomes, selectedYear),
@@ -677,6 +692,26 @@ export default function FinanceDashboard() {
     [filteredExpenses, hasCategorySelected, selectedCategory],
   );
 
+  const detailedCategoryStats = useMemo<CategoryDonutItem[]>(() => {
+    if (!hasCategorySelected) return [];
+
+    const total = categoryExpenses.reduce(
+      (acc, expense) => acc + Math.abs(expense.amount),
+      0
+    );
+
+    return categoryExpenses
+      .map((expense, idx) => ({
+        id: expense.id,
+        name: expense.description || `Despesa ${idx + 1}`,
+        total: Math.abs(expense.amount),
+        percent: total ? (Math.abs(expense.amount) / total) * 100 : 0,
+        color: colorFallbacks[idx % colorFallbacks.length],
+        date: expense.date,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [categoryExpenses, colorFallbacks, hasCategorySelected]);
+
   const handlePrevMonth = () => {
     const date = new Date(selectedYear, selectedMonth, 1);
     date.setMonth(date.getMonth() - 1);
@@ -713,7 +748,12 @@ export default function FinanceDashboard() {
       {/* HEADER */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
+          <h1
+            className="text-xl font-semibold text-slate-100"
+            style={TITLE_SHADOW}
+          >
+            Dashboard
+          </h1>
           <p className="text-sm text-slate-400">Visão do mês</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -817,7 +857,10 @@ export default function FinanceDashboard() {
           {/* Evolução mensal */}
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-100">
+              <h2
+                className="text-lg font-semibold text-slate-100"
+                style={TITLE_SHADOW}
+              >
                 Evolução mensal
               </h2>
               <p className="text-xs text-slate-400">
@@ -947,12 +990,22 @@ export default function FinanceDashboard() {
             {/* Donut */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-100">
+                <h2
+                  className="text-lg font-semibold text-slate-100"
+                  style={TITLE_SHADOW}
+                >
                   Gastos por categoria
                 </h2>
-                <span className="text-xs text-slate-500 capitalize">
-                  {currentMonthLabel}
-                </span>
+                <div className="flex flex-col text-right leading-tight">
+                  <span className="text-xs text-slate-500 capitalize">
+                    {currentMonthLabel}
+                  </span>
+                  {hasCategorySelected && (
+                    <span className="text-xl font-semibold text-emerald-300">
+                      {selectedCategory}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex h-full flex-col items-center justify-center">
@@ -987,7 +1040,9 @@ export default function FinanceDashboard() {
                       <RechartsTooltip content={renderDonutTooltip} />
 
                       <Pie
-                        data={categoryStats}
+                        data={
+                          hasCategorySelected ? detailedCategoryStats : categoryStats
+                        }
                         dataKey="total"
                         nameKey="name"
                         cx="50%"
@@ -1000,8 +1055,11 @@ export default function FinanceDashboard() {
                         labelLine={false}
                         label={renderCustomLabel}
                       >
-                        {categoryStats.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
+                        {(hasCategorySelected
+                          ? detailedCategoryStats
+                          : categoryStats
+                        ).map((entry) => (
+                          <Cell key={entry.id} fill={entry.color} />
                         ))}
                       </Pie>
                     </PieChart>
@@ -1013,7 +1071,10 @@ export default function FinanceDashboard() {
             {/* Lista de categorias + detalhes */}
             <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-slate-100">
+                <h2
+                  className="text-lg font-semibold text-slate-100"
+                  style={TITLE_SHADOW}
+                >
                   Categorias
                 </h2>
                 <span className="text-xs text-slate-500 capitalize">
@@ -1081,7 +1142,7 @@ export default function FinanceDashboard() {
           <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
             <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-6">
               <h2 className="mb-4 text-lg font-semibold text-slate-100">
-                Resumo do mês
+                <span style={TITLE_SHADOW}>Resumo do mês</span>
               </h2>
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1235,7 +1296,10 @@ export default function FinanceDashboard() {
                 {/* Top 5 saídas */}
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                    <h3 className="text-sm font-semibold text-slate-100">
+                    <h3
+                      className="text-sm font-semibold text-slate-100"
+                      style={TITLE_SHADOW}
+                    >
                       Top 5 saídas do mês
                     </h3>
                     {selectedCategory !== "todas" && (
@@ -1331,7 +1395,10 @@ export default function FinanceDashboard() {
       {viewMode === "entradas" && (
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">
+            <h2
+              className="text-lg font-semibold text-slate-100"
+              style={TITLE_SHADOW}
+            >
               Entradas
             </h2>
             <span className="text-sm text-slate-400">
@@ -1379,7 +1446,10 @@ export default function FinanceDashboard() {
       {viewMode === "saidas" && (
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-100">
+            <h2
+              className="text-lg font-semibold text-slate-100"
+              style={TITLE_SHADOW}
+            >
               Todas as saídas
             </h2>
             <span className="text-sm text-slate-400">

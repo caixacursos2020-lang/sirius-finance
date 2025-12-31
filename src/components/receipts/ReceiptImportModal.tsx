@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCategories } from "../../contexts/CategoriesContext";
 import { useFinance } from "../../contexts/FinanceContext";
-import { readReceiptFromImage } from "../../services/receiptOcr";
-import { uploadReceiptToVeryfi } from "../../services/veryfiApi";
-import { type Receipt, type ReceiptSummary } from "../../types/finance";
+import { readReceiptFromImage, readReceiptViaVeryfi } from "../../services/receiptOcr";
+import { type Receipt } from "../../types/finance";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 
 type ReceiptImportModalProps = {
@@ -136,45 +135,6 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     }
   };
 
-  const buildReceiptFromVeryfi = (summary: ReceiptSummary): Receipt => {
-    const items = (summary.items || []).map((item) => {
-      const qty = item.quantity && item.quantity > 0 ? item.quantity : 1;
-      const total = Number(item.total ?? 0);
-      const unit =
-        item.unit_price !== undefined && item.unit_price !== null
-          ? item.unit_price
-          : qty
-            ? total / qty
-            : total;
-      return {
-        id: typeof item.id === "number" ? item.id.toString() : item.id || crypto.randomUUID(),
-        description: item.description || "Item",
-        quantity: qty,
-        unitPrice: unit,
-        unit_price: item.unit_price,
-        total,
-      };
-    });
-
-    const itemsTotal = Number(items.reduce((acc, it) => acc + it.total, 0).toFixed(2));
-
-    return {
-      id: crypto.randomUUID(),
-      storeName: summary.store || "Cupom",
-      date: summary.purchase_date ? summary.purchase_date.slice(0, 10) : new Date().toISOString().slice(0, 10),
-      total: summary.total_amount ?? itemsTotal,
-      items,
-      rawText: "Importado via Veryfi",
-      rawTotalFromReceipt: summary.total_amount ?? itemsTotal,
-      itemsTotal,
-      suggestedCategory: summary.suggestedCategory ?? null,
-      warnings:
-        Math.abs(itemsTotal - (summary.total_amount ?? itemsTotal)) > 0.05
-          ? ["A soma dos itens difere do total retornado pela Veryfi."]
-          : [],
-    };
-  };
-
   const handleReadReceiptVeryfi = async () => {
     if (!selectedFile) {
       setError("Selecione uma imagem do cupom antes de continuar.");
@@ -185,8 +145,7 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     setStatusLog("Cupom enviado para leitura...");
 
     try {
-      const summary = await uploadReceiptToVeryfi(selectedFile);
-      const parsed = buildReceiptFromVeryfi(summary);
+      const parsed = await readReceiptViaVeryfi(selectedFile);
       setReceipt(parsed);
       setItemCategories({});
       setStep(2);

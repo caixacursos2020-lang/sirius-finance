@@ -7,9 +7,14 @@ const fs = require("fs");
 const { processReceiptWithVeryfi } = require("./veryfiClient");
 
 const app = express();
-const PORT = process.env.PORT || 3333;
+const PORT = process.env.PORT || 8787;
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    methods: ["GET", "POST", "OPTIONS"],
+  })
+);
 app.use(express.json());
 
 const uploadFolder = path.join(__dirname, "uploads");
@@ -18,8 +23,8 @@ if (!fs.existsSync(uploadFolder)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadFolder),
-  filename: (req, file, cb) => {
+  destination: (_req, _file, cb) => cb(null, uploadFolder),
+  filename: (_req, file, cb) => {
     const unique = Date.now() + "-" + Math.round(Math.random() * 1e9);
     const ext = path.extname(file.originalname) || "";
     cb(null, unique + ext);
@@ -28,11 +33,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-app.get("/", (req, res) => {
+app.get("/", (_req, res) => {
   res.json({ ok: true, message: "Veryfi backend rodando." });
 });
 
-app.post("/api/veryfi/receipt", upload.single("file"), async (req, res) => {
+// Rota principal esperada pelo frontend
+app.post("/veryfi", upload.single("file"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({
       ok: false,
@@ -40,7 +46,7 @@ app.post("/api/veryfi/receipt", upload.single("file"), async (req, res) => {
     });
   }
 
-  console.log("📂 Arquivo recebido do frontend:", req.file.originalname, "->", req.file.path);
+  console.log("[veryfi-backend] Arquivo recebido:", req.file.originalname, "->", req.file.path);
 
   try {
     const result = await processReceiptWithVeryfi(req.file.path);
@@ -55,7 +61,7 @@ app.post("/api/veryfi/receipt", upload.single("file"), async (req, res) => {
     const veryfiData = error.veryfi || error.response?.data || null;
 
     console.error(
-      "❌ Erro na rota /api/veryfi/receipt:",
+      "[veryfi-backend] Erro na rota /veryfi:",
       error.message,
       veryfiData ? JSON.stringify(veryfiData, null, 2) : ""
     );
@@ -71,6 +77,13 @@ app.post("/api/veryfi/receipt", upload.single("file"), async (req, res) => {
   }
 });
 
+// Rota antiga mantida por compatibilidade, redireciona para /veryfi
+app.post("/api/veryfi/receipt", upload.single("file"), async (req, res) => {
+  req.url = "/veryfi";
+  req.originalUrl = "/veryfi";
+  return app._router.handle(req, res);
+});
+
 app.listen(PORT, () => {
-  console.log(`🚀 Veryfi backend ouvindo na porta ${PORT}`);
+  console.log(`[veryfi-backend] ouvindo na porta ${PORT}`);
 });
