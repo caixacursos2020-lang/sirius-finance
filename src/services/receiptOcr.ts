@@ -84,7 +84,7 @@ const buildReceipt = (parsed: ParsedReceipt, rawText: string): Receipt => {
 };
 
 const buildReceiptFromVeryfiSummary = (summary: ReceiptSummary): Receipt => {
-  const items: ReceiptItem[] = (summary.items || []).map((item) => {
+  const items: ReceiptItem[] = (summary.items || []).map((item: ReceiptSummary["items"][number]) => {
     const qty = item.quantity && item.quantity > 0 ? item.quantity : 1;
     const total = Number(item.total ?? 0);
     const unit =

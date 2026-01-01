@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import {
   Bar,
@@ -69,7 +69,12 @@ export default function CompareMonthsPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [startMonth, setStartMonth] = useState(0);
   const [endMonth, setEndMonth] = useState(now.getMonth());
+
+  // IDs das categorias selecionadas manualmente
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+
+  // Se verdadeiro, ignora o filtro de categorias e mostra TODAS
+  const [selectAllCategories, setSelectAllCategories] = useState(true);
 
   const categoryIdByName = useMemo(() => {
     const map = new Map<string, string>();
@@ -78,7 +83,22 @@ export default function CompareMonthsPage() {
   }, [categories]);
 
   const toggleCategory = (id: string) => {
-    setSelectedCategoryIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+    // Ao mexer manualmente nas categorias, desliga o "Todos"
+    setSelectAllCategories(false);
+    setSelectedCategoryIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
+    );
+  };
+
+  const toggleAllCategories = () => {
+    setSelectAllCategories((prev) => {
+      const next = !prev;
+      if (next) {
+        // Ligou "Todos" => limpa seleção manual (nenhum ID marcado)
+        setSelectedCategoryIds([]);
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -87,7 +107,9 @@ export default function CompareMonthsPage() {
     }
   }, [endMonth, startMonth]);
 
-  const setPeriodoPreset = (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => {
+  const setPeriodoPreset = (
+    preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3",
+  ) => {
     if (preset === "anoInteiro") {
       setStartMonth(0);
       setEndMonth(11);
@@ -129,15 +151,23 @@ export default function CompareMonthsPage() {
       if (d.getFullYear() !== year) return false;
       const m = d.getMonth();
       if (m < startMonth || m > endMonth) return false;
-      if (!selectedCategoryIds.length) return true;
+
+      // Se "Todos" estiver ligado, não filtra por categoria
+      if (selectAllCategories) return true;
+
+      // Se "Todos" está desligado e não há nenhuma categoria marcada,
+      // então nenhuma saída entra no cálculo
+      if (!selectedCategoryIds.length) return false;
+
       if (e.categoryId && selectedCategoryIds.includes(e.categoryId)) return true;
+
       if (e.category) {
         const mappedId = categoryIdByName.get(e.category.toLowerCase());
         if (mappedId && selectedCategoryIds.includes(mappedId)) return true;
       }
       return false;
     });
-  }, [categoryIdByName, endMonth, expenses, selectedCategoryIds, startMonth, year]);
+  }, [categoryIdByName, endMonth, expenses, selectedCategoryIds, selectAllCategories, startMonth, year]);
 
   const filteredIncomes = useMemo(() => {
     return incomes.filter((i) => {
@@ -183,8 +213,12 @@ export default function CompareMonthsPage() {
       const saldo = m.entradas - m.saidas;
       if (idx === 0) return { ...m, saldo };
       const prev = arr[idx - 1];
-      const diffEntradasPercent = prev.entradas ? ((m.entradas - prev.entradas) / prev.entradas) * 100 : undefined;
-      const diffSaidasPercent = prev.saidas ? ((m.saidas - prev.saidas) / prev.saidas) * 100 : undefined;
+      const diffEntradasPercent = prev.entradas
+        ? ((m.entradas - prev.entradas) / prev.entradas) * 100
+        : undefined;
+      const diffSaidasPercent = prev.saidas
+        ? ((m.saidas - prev.saidas) / prev.saidas) * 100
+        : undefined;
       return { ...m, saldo, diffEntradasPercent, diffSaidasPercent };
     });
   }, [filteredExpenses, filteredIncomes, monthsRange]);
@@ -210,16 +244,12 @@ export default function CompareMonthsPage() {
 
   const melhorMes =
     filteredStats.length > 0
-      ? filteredStats.reduce((best, mes) =>
-          mes.saldo > best.saldo ? mes : best,
-        )
+      ? filteredStats.reduce((best, mes) => (mes.saldo > best.saldo ? mes : best))
       : null;
 
   const piorMes =
     filteredStats.length > 0
-      ? filteredStats.reduce((worst, mes) =>
-          mes.saldo < worst.saldo ? mes : worst,
-        )
+      ? filteredStats.reduce((worst, mes) => (mes.saldo < worst.saldo ? mes : worst))
       : null;
 
   const mediaSaldoMensal =
@@ -278,7 +308,9 @@ export default function CompareMonthsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Cruzar dados</h1>
-          <p className="text-sm text-slate-400">Comparação mensal de entradas e saídas com filtros.</p>
+          <p className="text-sm text-slate-400">
+            Comparação mensal de entradas e saídas com filtros.
+          </p>
         </div>
       </div>
 
@@ -305,13 +337,34 @@ export default function CompareMonthsPage() {
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 space-y-3">
           <h2 className="text-lg font-semibold">Categorias (saídas)</h2>
           <div className="flex flex-wrap gap-2">
+            {/* Botão TODOS */}
+            <label
+              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                selectAllCategories
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-slate-800 bg-slate-950"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="accent-emerald-500"
+                checked={selectAllCategories}
+                onChange={toggleAllCategories}
+              />
+              <span className="text-slate-100">Todos</span>
+            </label>
+
+            {/* Demais categorias */}
             {categories.map((cat) => {
-              const checked = selectedCategoryIds.includes(cat.id);
+              const checked =
+                !selectAllCategories && selectedCategoryIds.includes(cat.id);
               return (
                 <label
                   key={cat.id}
                   className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                    checked ? "border-emerald-500 bg-emerald-500/10" : "border-slate-800 bg-slate-950"
+                    checked
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "border-slate-800 bg-slate-950"
                   }`}
                 >
                   <input
@@ -324,8 +377,11 @@ export default function CompareMonthsPage() {
                 </label>
               );
             })}
+
             {!categories.length && (
-              <p className="text-sm text-slate-500">Nenhuma categoria cadastrada.</p>
+              <p className="text-sm text-slate-500">
+                Nenhuma categoria cadastrada.
+              </p>
             )}
           </div>
         </div>
@@ -396,7 +452,9 @@ export default function CompareMonthsPage() {
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <p className="text-xs text-slate-400">Melhor mês (saldo)</p>
           <p className="mt-2 text-sm font-semibold text-slate-100">
-            {melhorMes ? `${MONTHS[Number(melhorMes.mes.slice(5, 7)) - 1]}/${melhorMes.mes.slice(2, 4)}` : "-"}
+            {melhorMes
+              ? `${MONTHS[Number(melhorMes.mes.slice(5, 7)) - 1]}/${melhorMes.mes.slice(2, 4)}`
+              : "-"}
           </p>
           <p className="mt-1 text-lg font-semibold text-emerald-300">
             {melhorMes ? formatCurrency(melhorMes.saldo) : "-"}
@@ -406,7 +464,9 @@ export default function CompareMonthsPage() {
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <p className="text-xs text-slate-400">Pior mês (saldo)</p>
           <p className="mt-2 text-sm font-semibold text-slate-100">
-            {piorMes ? `${MONTHS[Number(piorMes.mes.slice(5, 7)) - 1]}/${piorMes.mes.slice(2, 4)}` : "-"}
+            {piorMes
+              ? `${MONTHS[Number(piorMes.mes.slice(5, 7)) - 1]}/${piorMes.mes.slice(2, 4)}`
+              : "-"}
           </p>
           <p className="mt-1 text-lg font-semibold text-rose-300">
             {piorMes ? formatCurrency(piorMes.saldo) : "-"}
@@ -415,18 +475,29 @@ export default function CompareMonthsPage() {
       </div>
 
       <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-200">
-        <h3 className="mb-1 text-sm font-semibold text-slate-100">Resumo inteligente do período</h3>
+        <h3 className="mb-1 text-sm font-semibold text-slate-100">
+          Resumo inteligente do período
+        </h3>
         <p className="text-sm text-slate-300">
           {filteredStats.length === 0 ? (
             <>Nenhum lançamento encontrado para os filtros atuais.</>
           ) : (
             <>
-              Entre <span className="font-semibold">{labelPeriodo}</span> você recebeu{" "}
-              <span className="font-semibold">{formatCurrency(totalEntradasPeriodo)}</span>, gastou{" "}
-              <span className="font-semibold">{formatCurrency(totalSaidasPeriodo)}</span> e fechou o período com{" "}
+              Entre <span className="font-semibold">{labelPeriodo}</span> você
+              recebeu{" "}
+              <span className="font-semibold">
+                {formatCurrency(totalEntradasPeriodo)}
+              </span>
+              , gastou{" "}
+              <span className="font-semibold">
+                {formatCurrency(totalSaidasPeriodo)}
+              </span>{" "}
+              e fechou o período com{" "}
               <span
                 className={
-                  saldoPeriodo >= 0 ? "text-emerald-300 font-semibold" : "text-rose-300 font-semibold"
+                  saldoPeriodo >= 0
+                    ? "text-emerald-300 font-semibold"
+                    : "text-rose-300 font-semibold"
                 }
               >
                 {formatCurrency(saldoPeriodo)}
@@ -434,7 +505,8 @@ export default function CompareMonthsPage() {
               .
               {melhorMes && (
                 <>
-                  {" "}Seu melhor mês foi{" "}
+                  {" "}
+                  Seu melhor mês foi{" "}
                   <span className="font-semibold">
                     {`${MONTHS[Number(melhorMes.mes.slice(5, 7)) - 1]}/${melhorMes.mes.slice(0, 4)}`}
                   </span>{" "}
@@ -447,7 +519,8 @@ export default function CompareMonthsPage() {
               )}
               {piorMes && (
                 <>
-                  {" "}O pior mês foi{" "}
+                  {" "}
+                  O pior mês foi{" "}
                   <span className="font-semibold">
                     {`${MONTHS[Number(piorMes.mes.slice(5, 7)) - 1]}/${piorMes.mes.slice(0, 4)}`}
                   </span>{" "}
@@ -457,13 +530,19 @@ export default function CompareMonthsPage() {
                   </span>
                   .
                 </>
-              )}
-              {" "}As saídas representam{" "}
+              )}{" "}
+              As saídas representam{" "}
               <span className="font-semibold">
                 {percentSaidasSobreEntradas.toFixed(1)}%
               </span>{" "}
               das entradas. Média de saldo mensal:{" "}
-              <span className={mediaSaldoMensal >= 0 ? "text-emerald-300 font-semibold" : "text-rose-300 font-semibold"}>
+              <span
+                className={
+                  mediaSaldoMensal >= 0
+                    ? "text-emerald-300 font-semibold"
+                    : "text-rose-300 font-semibold"
+                }
+              >
                 {formatCurrency(mediaSaldoMensal)}
               </span>
               .
@@ -475,7 +554,9 @@ export default function CompareMonthsPage() {
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Gráfico mensal</h2>
-          <span className="text-xs text-slate-500">Entradas, saídas e saldo</span>
+          <span className="text-xs text-slate-500">
+            Entradas, saídas e saldo
+          </span>
         </div>
         <div className="mt-4 h-80">
           <ResponsiveContainer width="100%" height="100%">
@@ -496,7 +577,10 @@ export default function CompareMonthsPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis dataKey="label" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`} />
+              <YAxis
+                stroke="#94a3b8"
+                tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`}
+              />
               <Tooltip content={renderTooltip} />
               <Legend />
               <Bar
@@ -509,7 +593,9 @@ export default function CompareMonthsPage() {
                   dataKey="saidas"
                   position="top"
                   formatter={(value) =>
-                    Number(value ?? 0) > 0 ? formatCurrency(Number(value ?? 0)) : ""
+                    Number(value ?? 0) > 0
+                      ? formatCurrency(Number(value ?? 0))
+                      : ""
                   }
                   className="text-[11px] fill-slate-100"
                 />
@@ -530,7 +616,9 @@ export default function CompareMonthsPage() {
                   dataKey="entradas"
                   position="top"
                   formatter={(value) =>
-                    Number(value ?? 0) > 0 ? formatCurrency(Number(value ?? 0)) : ""
+                    Number(value ?? 0) > 0
+                      ? formatCurrency(Number(value ?? 0))
+                      : ""
                   }
                   className="text-[11px] fill-slate-100"
                 />
@@ -627,9 +715,13 @@ function MonthRangePicker({
   endMonth: number;
   onChangeStart: (m: number) => void;
   onChangeEnd: (m: number) => void;
-  onSelectPreset: (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => void;
+  onSelectPreset: (
+    preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3",
+  ) => void;
 }) {
-  const isPresetActive = (preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3") => {
+  const isPresetActive = (
+    preset: "anoInteiro" | "primeiroSemestre" | "segundoSemestre" | "ultimos3",
+  ) => {
     if (preset === "anoInteiro") return startMonth === 0 && endMonth === 11;
     if (preset === "primeiroSemestre") return startMonth === 0 && endMonth === 5;
     if (preset === "segundoSemestre") return startMonth === 6 && endMonth === 11;

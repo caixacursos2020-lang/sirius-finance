@@ -274,6 +274,10 @@ export default function PriceResearchPanel() {
 
   const [isConfigOpen, setConfigOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingEntry, setEditingEntry] = useState<PriceEntry | null>(null);
+  const [editingDate, setEditingDate] = useState<string>("");
+  const [editingPrice, setEditingPrice] = useState<string>("");
+  const [editingStore, setEditingStore] = useState<string>("");
 
   // Persistência
   useEffect(() => {
@@ -564,11 +568,37 @@ export default function PriceResearchPanel() {
   };
 
   const handleEditEntry = (entry: PriceEntry) => {
-    setSelectedCategoryId(entry.categoryId);
-    setSelectedSubcategoryIds([entry.subcategoryId]);
-    setDate(entry.date);
-    setPriceInput(String(entry.price).replace(".", ","));
-    setStore(entry.store ?? "");
+    setEditingEntry(entry);
+    setEditingDate(entry.date);
+    setEditingPrice(String(entry.price));
+    setEditingStore(entry.store ?? "");
+  };
+
+  const handleCloseEdit = () => {
+    setEditingEntry(null);
+    setEditingDate("");
+    setEditingPrice("");
+    setEditingStore("");
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingEntry) return;
+    const priceNumber = Number(editingPrice.replace(",", "."));
+    if (!priceNumber || priceNumber <= 0) return;
+
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.id === editingEntry.id
+          ? {
+              ...e,
+              date: editingDate || e.date,
+              price: priceNumber,
+              store: editingStore || undefined,
+            }
+          : e,
+      ),
+    );
+    handleCloseEdit();
   };
 
   const toggleMonthFilter = (monthIndex: number) => {
@@ -1050,6 +1080,84 @@ export default function PriceResearchPanel() {
         <h3 className="text-sm font-semibold text-slate-100 mb-1">Resumo automático</h3>
         <p>{summaryText}</p>
       </div>
+
+      {editingEntry && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-100">Editar registro</h3>
+              <button
+                type="button"
+                onClick={handleCloseEdit}
+                className="text-xs text-slate-400 hover:text-slate-200"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs text-slate-400">Categoria · Subcategoria</p>
+                <p className="font-semibold text-slate-100">
+                  {categories.find((c) => c.id === editingEntry.categoryId)?.name ?? editingEntry.categoryId} ·{" "}
+                  {categories
+                    .find((c) => c.id === editingEntry.categoryId)
+                    ?.subcategories.find((s) => s.id === editingEntry.subcategoryId)?.name ??
+                    editingEntry.subcategoryId}
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400">Data</label>
+                  <input
+                    type="date"
+                    value={editingDate}
+                    onChange={(e) => setEditingDate(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-slate-400">Preço (R$)</label>
+                  <input
+                    type="text"
+                    value={editingPrice}
+                    onChange={(e) => setEditingPrice(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400">Estabelecimento</label>
+                <input
+                  type="text"
+                  value={editingStore}
+                  onChange={(e) => setEditingStore(e.target.value)}
+                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCloseEdit}
+                  className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:border-rose-500 hover:text-rose-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-emerald-500"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isConfigOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">

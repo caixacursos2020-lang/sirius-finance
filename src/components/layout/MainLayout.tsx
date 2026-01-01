@@ -11,7 +11,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Caixa SIRIUS - App Financeiro</h1>
+        <h1 className="text-lg font-semibold">SIRIUS - App Financeiro</h1>
         <nav
           className="flex items-center gap-2 text-sm relative"
           onMouseLeave={() => setOpenMenu(null)}
@@ -34,8 +34,8 @@ export default function MainLayout({ children }: { children: ReactNode }) {
 
           <Dropdown
             label="Saídas"
-            isOpen={openMenu === "saidas"}
-            onOpen={() => setOpenMenu("saidas")}
+            isOpen={openMenu === "saídas"}
+            onOpen={() => setOpenMenu("saídas")}
             onClose={() => setOpenMenu(null)}
             items={[
               { to: "/saidas/adicionar", label: "Adicionar saída" },
@@ -57,7 +57,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
           />
 
           <Link className={`px-3 py-1 rounded-md ${isActive("/banco")}`} to="/banco">
-            Banco
+            Carteira
           </Link>
         </nav>
       </header>
@@ -107,3 +107,15 @@ function Dropdown({
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+

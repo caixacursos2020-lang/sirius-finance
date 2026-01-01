@@ -61,7 +61,7 @@ const mapVeryfiSummaryToReceipt = (summary: VeryfiSummary): ReceiptSummary => {
     };
   });
 
-  const itemsTotal = items.reduce((acc, item) => acc + item.total, 0);
+  const itemsTotal = items.reduce((acc: number, item) => acc + item.total, 0);
   const total_amount =
     normalizeNumber(summary.total_cupom ?? summary.total_itens) ?? itemsTotal;
 

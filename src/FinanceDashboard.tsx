@@ -1,4 +1,4 @@
-
+﻿
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -155,6 +155,37 @@ function ExpenseDetailModal({
             label="Forma de pagamento"
             value={getPaymentMethodName(expense.paymentMethodId)}
           />
+          {(expense.category.toLowerCase() === "gasolina" ||
+            expense.fuelLiters ||
+            expense.fuelPricePerLiter ||
+            expense.fuelStation ||
+            expense.fuelType) && (
+            <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+              <div className="flex items-center justify-between text-slate-200">
+                <span className="text-sm font-semibold">Detalhes do abastecimento</span>
+              </div>
+              <div className="space-y-1 text-sm">
+                {expense.fuelLiters !== undefined && (
+                  <DetailRow
+                    label="Litros abastecidos"
+                    value={`${expense.fuelLiters.toFixed(2)} L`}
+                  />
+                )}
+                {expense.fuelPricePerLiter !== undefined && (
+                  <DetailRow
+                    label="Preço por litro"
+                    value={formatCurrency(expense.fuelPricePerLiter)}
+                  />
+                )}
+                {expense.fuelStation && (
+                  <DetailRow label="Posto / Estabelecimento" value={expense.fuelStation} />
+                )}
+                {expense.fuelType && (
+                  <DetailRow label="Tipo de gasolina" value={expense.fuelType} />
+                )}
+              </div>
+            </div>
+          )}
 
           {expense.isReceipt && expense.receiptItems?.length ? (
             <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
@@ -441,7 +472,7 @@ function CategoryDetailsPanel({
               className="text-sm font-semibold text-slate-100"
               style={TITLE_SHADOW}
             >
-              Detalhes da categoria
+              Detalhes da Categoria
             </h2>
           <p className="text-xs text-slate-400">
             Categoria selecionada: {category} · {monthLabel}
@@ -479,7 +510,7 @@ function CategoryDetailsPanel({
         ))}
         {expenses.length === 0 && (
           <p className="py-4 text-center text-sm text-slate-500">
-            Nenhuma saída nesta categoria.
+            Nenhuma saída nesta Categoria.
           </p>
         )}
       </div>
@@ -574,7 +605,7 @@ export default function FinanceDashboard() {
 
   const saldoMes = totalEntradas - totalSaidas;
 
-  // Donut de categorias
+  // Donut de Categorias
   const categoryStats = useMemo<CategoryDonutItem[]>(() => {
     const map = new Map<string, { total: number; count: number; color: string }>();
 
@@ -864,7 +895,7 @@ export default function FinanceDashboard() {
                 Evolução mensal
               </h2>
               <p className="text-xs text-slate-400">
-                Entradas x saídas · Ano de {selectedYear}
+                Entradas x Saídas · Ano de {selectedYear}
               </p>
             </div>
             <div className="mt-4 h-[320px] md:h-[360px]">
@@ -921,17 +952,13 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="entradas"
                       position="top"
-                      formatter={(value: any) =>
-                        formatCurrency(Number(value ?? 0))
-                      }
+                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : formatCurrency(Number(value ?? 0))}
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualEntradasMes"
                       position="insideBottom"
-                      formatter={(value: any) =>
-                        `${Number(value ?? 0).toFixed(1)}%`
-                      }
+                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : `${Number(value ?? 0).toFixed(1)}%`}
                       fill="#bfdbfe"
                       className="text-[11px]"
                     />
@@ -945,17 +972,13 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="saidas"
                       position="top"
-                      formatter={(value: any) =>
-                        formatCurrency(Number(value ?? 0))
-                      }
+                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : formatCurrency(Number(value ?? 0))}
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualSaidasMes"
                       position="insideBottom"
-                      formatter={(value: any) =>
-                        `${Number(value ?? 0).toFixed(1)}%`
-                      }
+                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : `${Number(value ?? 0).toFixed(1)}%`}
                       fill="#fecdd3"
                       className="text-[11px]"
                     />
@@ -985,7 +1008,7 @@ export default function FinanceDashboard() {
             </div>
           </div>
 
-          {/* Linha 1: Donut + lista de categorias */}
+          {/* Linha 1: Donut + lista de Categorias */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Donut */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -994,7 +1017,7 @@ export default function FinanceDashboard() {
                   className="text-lg font-semibold text-slate-100"
                   style={TITLE_SHADOW}
                 >
-                  Gastos por categoria
+                  Gastos por Categoria
                 </h2>
                 <div className="flex flex-col text-right leading-tight">
                   <span className="text-xs text-slate-500 capitalize">
@@ -1047,8 +1070,8 @@ export default function FinanceDashboard() {
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                        innerRadius={90}
-                        outerRadius={130}
+                      innerRadius={72}
+                      outerRadius={104}
                         paddingAngle={3}
                         stroke="#0f172a"
                         strokeWidth={4}
@@ -1068,7 +1091,7 @@ export default function FinanceDashboard() {
               </div>
             </div>
 
-            {/* Lista de categorias + detalhes */}
+            {/* Lista de Categorias + detalhes */}
             <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="mb-3 flex items-center justify-between">
                 <h2
@@ -1082,6 +1105,26 @@ export default function FinanceDashboard() {
                 </span>
               </div>
               <div className="max-h-[250px] flex-1 space-y-2 overflow-y-auto pr-2">
+                <button
+                  onClick={() => setSelectedCategory("todas")}
+                  className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                    selectedCategory === "todas"
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "border-slate-800 bg-slate-950 hover:border-emerald-500/60"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
+                      <span className="text-sm font-medium text-slate-100">Todos</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-slate-100">{formatCurrency(totalSaidas)}</div>
+                      <div className="text-xs text-slate-400">100.0%</div>
+                    </div>
+                  </div>
+                </button>
+
                 {categoryStats.map((item) => {
                   const active = selectedCategory === item.name;
                   return (
@@ -1218,7 +1261,7 @@ export default function FinanceDashboard() {
                             {highlightedCategory
                               ? `${highlightedCategory.participacaoNoMes.toFixed(
                                   1,
-                                )}% das saídas do mês`
+                                )}% das Saídas do mês`
                               : ""}
                           </p>
                         </>
@@ -1293,14 +1336,14 @@ export default function FinanceDashboard() {
                   </div>
                 </div>
 
-                {/* Top 5 saídas */}
+                {/* Top 5 Saídas */}
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                     <h3
                       className="text-sm font-semibold text-slate-100"
                       style={TITLE_SHADOW}
                     >
-                      Top 5 saídas do mês
+                      Top 5 Saídas do mês
                     </h3>
                     {selectedCategory !== "todas" && (
                       <button
@@ -1314,7 +1357,7 @@ export default function FinanceDashboard() {
                       className="text-xs text-sky-300 underline underline-offset-4 hover:text-sky-200"
                       onClick={() => setViewMode("saidas")}
                     >
-                      Ver todas as saídas
+                      Ver todas as Saídas
                     </button>
                   </div>
                   <div className="overflow-x-auto">
@@ -1373,7 +1416,7 @@ export default function FinanceDashboard() {
                               colSpan={6}
                               className="py-3 text-center text-slate-400"
                             >
-                              Sem saídas neste mês.
+                              Sem Saídas neste mês.
                             </td>
                           </tr>
                         )}
@@ -1450,7 +1493,7 @@ export default function FinanceDashboard() {
               className="text-lg font-semibold text-slate-100"
               style={TITLE_SHADOW}
             >
-              Todas as saídas
+              Todas as Saídas
             </h2>
             <span className="text-sm text-slate-400">
               {despesasOrdenadas.length} itens

@@ -153,7 +153,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
       }
 
       case "item": {
-        // Pega o ultimo numero com padrao de preco como valor
+        // Pega o uúltimo numero com padrao de preco como valor
         const priceMatch =
           line.match(/r?\$\s*([\d.,]+)/i)?.[1] ||
           line.match(/([\d.,]+)\s*$/)?.[1];
@@ -177,7 +177,7 @@ export function parseReceiptText(rawText: string): ParsedReceipt {
       case "discount": {
         const value = parseBrazilianMoney(line);
         if (value != null && lastItem) {
-          // Tratamos desconto como valor negativo ligado ao ultimo item
+          // Tratamos desconto como valor negativo ligado ao uúltimo item
           lastItem.value = Number((lastItem.value + value).toFixed(2));
           lastItem.isDiscount = true;
         }

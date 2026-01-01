@@ -28,6 +28,10 @@ export interface Expense {
   dueDate?: string;
   recurrenceDay?: number;
   status: ExpenseStatus;
+  fuelLiters?: number;
+  fuelPricePerLiter?: number;
+  fuelStation?: string;
+  fuelType?: string;
   createdAt: string; // ISO datetime
   receiptId?: string;
   // Campos para cupons
