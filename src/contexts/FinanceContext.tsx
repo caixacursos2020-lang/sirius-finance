@@ -1,3 +1,6 @@
+import { useAuth } from "./AuthContext";
+import { supabase } from "../supabaseClient";
+
 import {
   createContext,
   useContext,
@@ -5,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
 import {
   type Expense,
   type ExpenseStatus,
@@ -31,8 +35,11 @@ interface FinanceContextValue {
   paymentMethods: PaymentMethod[];
   loading: boolean;
 
-  addExpense: (data: Omit<Expense, "id" | "createdAt">) => void;
-  deleteExpense: (id: string) => void;
+  loadIncomes: () => Promise<{ error?: string }>;
+  loadExpenses: () => Promise<{ error?: string }>;
+
+  addExpense: (data: Omit<Expense, "id" | "createdAt" | "user_id">) => Promise<{ error?: string }>;
+  deleteExpense: (id: string) => Promise<{ error?: string; success?: boolean }>;
   updateExpense: (
     id: string,
     data: Partial<Omit<Expense, "id" | "createdAt">>
@@ -67,8 +74,8 @@ interface FinanceContextValue {
     bankId?: string;
   }) => void;
 
-  addIncome: (data: Omit<Income, "id" | "createdAt">) => void;
-  deleteIncome: (id: string) => void;
+  addIncome: (data: Omit<Income, "id" | "createdAt" | "user_id">) => Promise<{ error?: string }>;
+  deleteIncome: (id: string) => Promise<{ error?: string; success?: boolean }>;
   updateIncome: (
     id: string,
     data: Partial<Omit<Income, "id" | "createdAt">>
@@ -124,8 +131,6 @@ const FinanceContext = createContext<FinanceContextValue | undefined>(
   undefined
 );
 
-const EXPENSES_KEY = "sirius_expenses_v1";
-const INCOMES_KEY = "sirius_incomes_v1";
 const RECEIPTS_KEY = "sirius_receipts_v1";
 const BANKS_KEY = "sirius_bank_accounts_v1";
 const BALANCES_KEY = "sirius_bank_balances_v1";
@@ -160,6 +165,7 @@ const defaultPaymentMethods: PaymentMethod[] = [
 ];
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
@@ -170,75 +176,37 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // ---------------------------------------------------------------------------
-  // Carrega tudo do localStorage na primeira vez (e normaliza paymentMethodId)
+  // Carrega dados locais (não-Supabase)
   // ---------------------------------------------------------------------------
   useEffect(() => {
     try {
-      const rawExpenses = localStorage.getItem(EXPENSES_KEY);
-      if (rawExpenses) {
-        const parsed = JSON.parse(rawExpenses) as Expense[];
-        // compatibilidade: despesas antigas podem não ter paymentMethodId
-        const normalized = parsed.map((e) => ({
-          ...e,
-          paymentMethodId: e.paymentMethodId ?? null,
-        }));
-        setExpenses(normalized);
-      }
-    } catch (err) {
-      console.error("Erro ao carregar gastos do localStorage", err);
-    }
-
-    try {
-      const rawIncomes = localStorage.getItem(INCOMES_KEY);
-      if (rawIncomes) {
-        const parsed = JSON.parse(rawIncomes) as Income[];
-        setIncomes(parsed);
-      }
-    } catch (err) {
-      console.error("Erro ao carregar entradas do localStorage", err);
-    }
-
-    try {
       const rawReceipts = localStorage.getItem(RECEIPTS_KEY);
-      if (rawReceipts) {
-        const parsed = JSON.parse(rawReceipts) as Receipt[];
-        setReceipts(parsed);
-      }
+      if (rawReceipts) setReceipts(JSON.parse(rawReceipts));
     } catch (err) {
       console.error("Erro ao carregar cupons do localStorage", err);
     }
 
     try {
       const rawBanks = localStorage.getItem(BANKS_KEY);
-      if (rawBanks) {
-        const parsed = JSON.parse(rawBanks) as BankAccount[];
-        setBankAccounts(parsed);
-      }
+      if (rawBanks) setBankAccounts(JSON.parse(rawBanks));
     } catch (err) {
       console.error("Erro ao carregar bancos do localStorage", err);
     }
 
     try {
       const rawBalances = localStorage.getItem(BALANCES_KEY);
-      if (rawBalances) {
-        const parsed = JSON.parse(rawBalances) as BankBalance[];
-        setBankBalances(parsed);
-      }
+      if (rawBalances) setBankBalances(JSON.parse(rawBalances));
     } catch (err) {
       console.error("Erro ao carregar saldos bancários do localStorage", err);
     }
 
     try {
       const rawPrices = localStorage.getItem(PRICE_SAMPLES_KEY);
-      if (rawPrices) {
-        const parsed = JSON.parse(rawPrices) as TrackedPriceSample[];
-        setPriceSamples(parsed);
-      }
+      if (rawPrices) setPriceSamples(JSON.parse(rawPrices));
     } catch (err) {
       console.error("Erro ao carregar pesquisa de preços do localStorage", err);
     }
 
-    // Carregar formas de pagamento
     try {
       const rawPM = localStorage.getItem(PAYMENT_METHODS_KEY);
       if (rawPM) {
@@ -250,122 +218,213 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       console.error("Erro ao carregar formas de pagamento", err);
       setPaymentMethods(defaultPaymentMethods);
     }
-
-    setLoading(false);
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Persistência no localStorage
+  // Persistência local (não-Supabase)
   // ---------------------------------------------------------------------------
-
-  // Salva despesas
   useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
-    } catch (err) {
-      console.error("Erro ao salvar gastos no localStorage", err);
-    }
-  }, [expenses, loading]);
+    localStorage.setItem(RECEIPTS_KEY, JSON.stringify(receipts));
+  }, [receipts]);
 
-  // Salva entradas
   useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(INCOMES_KEY, JSON.stringify(incomes));
-    } catch (err) {
-      console.error("Erro ao salvar entradas no localStorage", err);
-    }
-  }, [incomes, loading]);
+    localStorage.setItem(BANKS_KEY, JSON.stringify(bankAccounts));
+  }, [bankAccounts]);
 
-  // Salva cupons
   useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(RECEIPTS_KEY, JSON.stringify(receipts));
-    } catch (err) {
-      console.error("Erro ao salvar cupons no localStorage", err);
-    }
-  }, [receipts, loading]);
+    localStorage.setItem(BALANCES_KEY, JSON.stringify(bankBalances));
+  }, [bankBalances]);
 
-  // Salva bancos
   useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(BANKS_KEY, JSON.stringify(bankAccounts));
-    } catch (err) {
-      console.error("Erro ao salvar bancos no localStorage", err);
-    }
-  }, [bankAccounts, loading]);
+    localStorage.setItem(PAYMENT_METHODS_KEY, JSON.stringify(paymentMethods));
+  }, [paymentMethods]);
 
-  // Salva saldos
   useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(BALANCES_KEY, JSON.stringify(bankBalances));
-    } catch (err) {
-      console.error("Erro ao salvar saldos bancários no localStorage", err);
-    }
-  }, [bankBalances, loading]);
-
-  // Salva formas de pagamento
-  useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(PAYMENT_METHODS_KEY, JSON.stringify(paymentMethods));
-    } catch (err) {
-      console.error("Erro ao salvar formas de pagamento", err);
-    }
-  }, [paymentMethods, loading]);
-
-  // Salva pesquisa de preços
-  useEffect(() => {
-    if (loading) return;
-    try {
-      localStorage.setItem(PRICE_SAMPLES_KEY, JSON.stringify(priceSamples));
-    } catch (err) {
-      console.error("Erro ao salvar pesquisa de preços no localStorage", err);
-    }
-  }, [priceSamples, loading]);
+    localStorage.setItem(PRICE_SAMPLES_KEY, JSON.stringify(priceSamples));
+  }, [priceSamples]);
 
   // ---------------------------------------------------------------------------
-  // Despesas
+  // Supabase: load incomes/expenses quando o usuário muda
   // ---------------------------------------------------------------------------
+  useEffect(() => {
+    let active = true;
 
-  const addExpense = (data: Omit<Expense, "id" | "createdAt">) => {
-    const newExpense: Expense = {
-      ...data,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
+    const fetchData = async () => {
+      setLoading(true);
+
+      if (!user) {
+        setExpenses([]);
+        setIncomes([]);
+        setLoading(false);
+        return;
+      }
+
+      await Promise.all([loadIncomes(), loadExpenses()]);
+
+      if (active) setLoading(false);
     };
-    setExpenses((prev) => [...prev, newExpense]);
+
+    fetchData();
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  // ---------------------------------------------------------------------------
+  // Supabase helpers
+  // ---------------------------------------------------------------------------
+  const loadIncomes = async (): Promise<{ error?: string }> => {
+    if (!user) {
+      return { error: "Usu?rio n?o autenticado" };
+    }
+    const { data, error } = await supabase
+      .from("incomes")
+      .select("id, user_id, date, description, amount, category, payment_method, created_at")
+      .eq("user_id", user.id)
+      .order("date", { ascending: false });
+    if (error) {
+      console.error("Erro ao carregar incomes", error);
+      return { error: "Falha ao carregar entradas" };
+    }
+    setIncomes(
+      (data ?? []).map((item) => ({
+        id: item.id,
+        date: item.date ?? "",
+        description: item.description ?? "",
+        amount: Number(item.amount ?? 0),
+        source: item.category ?? "Outras",
+        createdAt: item.created_at ?? new Date().toISOString(),
+      }))
+    );
+    return {};
   };
 
-  const deleteExpense = (id: string) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
+  const loadExpenses = async (): Promise<{ error?: string }> => {
+    if (!user) {
+      return { error: "Usu?rio n?o autenticado" };
+    }
+    const { data, error } = await supabase
+      .from("expenses")
+      .select("id, user_id, date, description, amount, category, payment_method, created_at")
+      .eq("user_id", user.id)
+      .order("date", { ascending: false });
+    if (error) {
+      console.error("Erro ao carregar expenses", error);
+      return { error: "Falha ao carregar sa?das" };
+    }
+    setExpenses(
+      (data ?? []).map((item) => ({
+        id: item.id,
+        date: item.date ?? "",
+        description: item.description ?? "",
+        amount: Number(item.amount ?? 0),
+        category: item.category ?? "Outros",
+        categoryId: undefined,
+        paymentMethodId: item.payment_method ?? null,
+        isFixed: false,
+        isRecurring: false,
+        dueDate: undefined,
+        recurrenceDay: undefined,
+        status: "paga",
+        createdAt: item.created_at ?? new Date().toISOString(),
+      }))
+    );
+    return {};
   };
 
-  const updateExpense = (
-    id: string,
-    data: Partial<Omit<Expense, "id" | "createdAt">>
+  const addIncome = async (
+    data: Omit<Income, "id" | "createdAt" | "user_id">
   ) => {
-    setExpenses((prev) =>
-      prev.map((exp) => (exp.id === id ? { ...exp, ...data } : exp))
-    );
+    if (!user) return { error: "Usu?rio n?o autenticado" };
+    const insertPayload = {
+      date: data.date,
+      description: data.description,
+      amount: data.amount,
+      category: data.source,
+      payment_method: null,
+      user_id: user.id,
+    };
+    const { data: inserted, error } = await supabase
+      .from("incomes")
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Erro ao inserir income", error);
+      return { error: "Falha ao salvar entrada" };
+    }
+
+    setIncomes((prev) => [
+      ...prev,
+      {
+        id: inserted.id,
+        date: inserted.date ?? data.date,
+        description: inserted.description ?? data.description,
+        amount: Number(inserted.amount ?? data.amount),
+        source: inserted.category ?? data.source,
+        createdAt: inserted.created_at ?? new Date().toISOString(),
+      },
+    ]);
+    return {};
   };
 
-  const updateExpenseStatus = (id: string, status: ExpenseStatus) => {
-    setExpenses((prev) =>
-      prev.map((expense) =>
-        expense.id === id ? { ...expense, status } : expense
-      )
-    );
+  const addExpense = async (
+    data: Omit<Expense, "id" | "createdAt" | "user_id">
+  ) => {
+    if (!user) return { error: "Usu?rio n?o autenticado" };
+    const insertPayload = {
+      date: data.date,
+      description: data.description,
+      amount: data.amount,
+      category: data.category,
+      payment_method: data.paymentMethodId ?? null,
+      user_id: user.id,
+    };
+    const { data: inserted, error } = await supabase
+      .from("expenses")
+      .insert(insertPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Erro ao inserir expense", error);
+      return { error: "Falha ao salvar sa?da" };
+    }
+
+    setExpenses((prev) => [
+      ...prev,
+      {
+        id: inserted.id,
+        date: inserted.date ?? data.date,
+        description: inserted.description ?? data.description,
+        amount: Number(inserted.amount ?? data.amount),
+        category: inserted.category ?? data.category,
+        categoryId: data.categoryId,
+        paymentMethodId: inserted.payment_method ?? data.paymentMethodId ?? null,
+        isFixed: data.isFixed,
+        isRecurring: data.isRecurring,
+        dueDate: data.dueDate,
+        recurrenceDay: data.recurrenceDay,
+        status: data.status,
+        fuelLiters: data.fuelLiters,
+        fuelPricePerLiter: data.fuelPricePerLiter,
+        fuelStation: data.fuelStation,
+        fuelType: data.fuelType,
+        createdAt: inserted.created_at ?? new Date().toISOString(),
+        receiptId: data.receiptId,
+        isReceipt: data.isReceipt,
+        receiptStore: data.receiptStore,
+        receiptItems: data.receiptItems,
+      },
+    ]);
+    return {};
   };
 
   // ---------------------------------------------------------------------------
-  // Cupons / recibos
+  // Cupons / recibos (local)
   // ---------------------------------------------------------------------------
-
   const addReceipt = (receipt: Receipt) => {
     setReceipts((prev) => {
       const exists = prev.find((r) => r.id === receipt.id);
@@ -454,21 +513,29 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Entradas
+  // Entradas (Supabase)
   // ---------------------------------------------------------------------------
+const deleteIncome = async (id: string): Promise<{ error?: string; success?: boolean }> => {
+  try {
+    const { error } = await supabase
+      .from("incomes")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user?.id ?? null);
 
-  const addIncome = (data: Omit<Income, "id" | "createdAt">) => {
-    const newIncome: Income = {
-      ...data,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-    setIncomes((prev) => [...prev, newIncome]);
-  };
+    if (error) {
+      throw new Error(error.message);
+    }
 
-  const deleteIncome = (id: string) => {
-    setIncomes((prev) => prev.filter((inc) => inc.id !== id));
-  };
+    setIncomes((prev) => prev.filter((income) => income.id !== id));
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Erro ao deletar entrada:", err);
+    return { error: err?.message || "Erro ao deletar entrada" };
+  }
+};
+
 
   const updateIncome = (
     id: string,
@@ -480,9 +547,56 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Bancos / contas e saldos
+  // Saídas (Supabase)
   // ---------------------------------------------------------------------------
+const deleteExpense = async (id: string) => {
+  console.log("deleteExpense chamado com id:", id);
 
+  try {
+    const { error } = await supabase
+      .from("expenses")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Erro Supabase ao deletar expense:", error);
+      alert("Erro ao deletar saída: " + error.message);
+      return { error: error.message };
+    }
+
+    setExpenses((prev) =>
+      prev.filter((expense) => expense.id === undefined || expense.id !== id)
+    );
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Erro inesperado ao deletar expense:", err);
+    alert("Erro inesperado ao deletar saída");
+    return { error: err?.message ?? "Erro inesperado" };
+  }
+};
+
+
+  const updateExpense = (
+    id: string,
+    data: Partial<Omit<Expense, "id" | "createdAt">>
+  ) => {
+    setExpenses((prev) =>
+      prev.map((exp) => (exp.id === id ? { ...exp, ...data } : exp))
+    );
+  };
+
+  const updateExpenseStatus = (id: string, status: ExpenseStatus) => {
+    setExpenses((prev) =>
+      prev.map((expense) =>
+        expense.id === id ? { ...expense, status } : expense
+      )
+    );
+  };
+
+  // ---------------------------------------------------------------------------
+  // Bancos / contas e saldos (local)
+  // ---------------------------------------------------------------------------
   const addBankAccount = (data: Omit<BankAccount, "id" | "createdAt">) => {
     const account: BankAccount = {
       ...data,
@@ -580,9 +694,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Formas de pagamento
+  // Formas de pagamento (local)
   // ---------------------------------------------------------------------------
-
   const addPaymentMethod = (data: {
     name: string;
     type: PaymentMethodType;
@@ -670,9 +783,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Pesquisa de preços
+  // Pesquisa de preços (local)
   // ---------------------------------------------------------------------------
-
   const trackedVariantsMeta = Object.values(TRACKED_VARIANTS_META);
 
   const addPriceSample = (data: {
@@ -687,10 +799,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       unit: string;
     };
   }) => {
-    // Tenta encontrar meta existente ou usa o customMeta fornecido
-    const meta = TRACKED_VARIANTS_META[data.variantKey as TrackedVariantKey] || data.customMeta;
-    
-    if (!meta) return; // Se não tiver meta nenhum, aborta
+    const meta =
+      TRACKED_VARIANTS_META[data.variantKey as TrackedVariantKey] ||
+      data.customMeta;
+
+    if (!meta) return;
 
     const sample: TrackedPriceSample = {
       id: crypto.randomUUID(),
@@ -726,7 +839,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
     history.forEach((s) => {
       if (!s.date) return;
-      const key = s.date.slice(0, 7); // YYYY-MM
+      const key = s.date.slice(0, 7);
       const current = byMonth.get(key) ?? { total: 0, count: 0 };
       current.total += s.value;
       current.count += 1;
@@ -803,6 +916,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         bankBalances,
         paymentMethods,
         loading,
+        loadIncomes,
+        loadExpenses,
         addExpense,
         deleteExpense,
         updateExpense,

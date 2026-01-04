@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:supabase": "node ./supabase-test.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
     "@types/uuid": "^10.0.0",
     "@zxing/browser": "^0.1.5",
     "cheerio": "^1.1.2",
@@ -36,6 +38,7 @@
     "globals": "^16.5.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
+    "ts-node": "^10.9.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4"

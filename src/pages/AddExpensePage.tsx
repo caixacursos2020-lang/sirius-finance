@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFinance, type ExpenseStatus } from "../contexts/FinanceContext";
 import type { Category } from "../types/finance";
@@ -6,7 +6,7 @@ import { useCategories } from "../contexts/CategoriesContext";
 import { PaymentMethodSelect } from "../contexts/PaymentMethodSelect";
 
 export default function AddExpensePage() {
-  const { addExpense } = useFinance();
+  const { addExpense, loadExpenses, loadIncomes, loading } = useFinance();
   const navigate = useNavigate();
   const { categories } = useCategories();
 
@@ -25,6 +25,17 @@ export default function AddExpensePage() {
   const [pricePerLiter, setPricePerLiter] = useState("");
   const [fuelType, setFuelType] = useState<"comum" | "aditivada">("comum");
   const [sendToPriceResearch, setSendToPriceResearch] = useState(false);
+
+  const [saving, setSaving] = useState(false);
+
+  const initialLoad = useRef(false);
+
+  useEffect(() => {
+    if (initialLoad.current) return;
+    initialLoad.current = true;
+    loadIncomes();
+    loadExpenses();
+  }, [loadExpenses, loadIncomes]);
 
   const categoryNames = useMemo(() => categories.map((c) => c.name), [categories]);
 
@@ -46,8 +57,9 @@ export default function AddExpensePage() {
     }
   }, [amount, pricePerLiter, category]);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
 
     const value = parseFloat(amount.replace(",", "."));
     const categoryLower = category.toLowerCase();
@@ -73,7 +85,8 @@ export default function AddExpensePage() {
       return;
     }
 
-    addExpense({
+    setSaving(true);
+    const result = await addExpense({
       date,
       description,
       amount: value,
@@ -89,6 +102,12 @@ export default function AddExpensePage() {
       fuelStation,
       fuelType: categoryLower === "gasolina" ? fuelType : undefined,
     });
+    setSaving(false);
+
+    if (result?.error) {
+      alert(result.error);
+      return;
+    }
 
     if (sendToPriceResearch && categoryLower === "gasolina") {
       const newEntry = {
@@ -126,6 +145,14 @@ export default function AddExpensePage() {
     }
 
     navigate("/");
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100">
+        Carregando dados...
+      </div>
+    );
   }
 
   return (
@@ -344,9 +371,10 @@ export default function AddExpensePage() {
 
         <button
           type="submit"
-          className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-sm font-medium"
+          disabled={saving}
+          className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-sm font-medium disabled:opacity-60"
         >
-          Salvar saída
+          {saving ? "Salvando..." : "Salvar saída"}
         </button>
       </form>
     </div>

@@ -1,9 +1,11 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { useState, type ReactNode } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 
-export default function MainLayout({ children }: { children: ReactNode }) {
+export default function MainLayout({ children }: { children?: ReactNode }) {
   const location = useLocation();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const { signOut } = useAuth();
 
   const isActive = (path: string) =>
     location.pathname === path ? "bg-sky-600" : "bg-slate-800 hover:bg-slate-700";
@@ -59,9 +61,16 @@ export default function MainLayout({ children }: { children: ReactNode }) {
           <Link className={`px-3 py-1 rounded-md ${isActive("/banco")}`} to="/banco">
             Carteira
           </Link>
+          <button
+            type="button"
+            onClick={() => signOut()}
+            className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold"
+          >
+            Sair
+          </button>
         </nav>
       </header>
-      <main className="p-6">{children}</main>
+      <main className="p-6">{children ?? <Outlet />}</main>
     </div>
   );
 }

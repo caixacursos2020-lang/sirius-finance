@@ -1,6 +1,4 @@
-﻿
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+﻿// src/FinanceDashboard.tsx
 import {
   Bar,
   CartesianGrid,
@@ -16,13 +14,18 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
 import { Wallet2, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
 import {
   useFinance,
   type Expense,
   type ExpenseStatus,
   type Income,
 } from "./contexts/FinanceContext";
+import { supabase } from "./supabaseClient";
 import { useCategories } from "./contexts/CategoriesContext";
 import ReceiptImportModal from "./components/receipts/ReceiptImportModal";
 import { formatCurrency, formatDate } from "./utils/formatters";
@@ -46,6 +49,7 @@ type CategoryDonutItem = {
   total: number;
   percent: number;
   color: string;
+  date?: string; // opcional – usado no detalhamento
 };
 
 const TITLE_SHADOW = {
@@ -68,13 +72,13 @@ function ExpenseDetailModal({
   expense,
   onClose,
   onToggleStatus,
-  onDelete,
+  onConfirm,
   onEdit,
 }: {
   expense: Expense;
   onClose: () => void;
   onToggleStatus: (status: ExpenseStatus) => void;
-  onDelete: () => void;
+  onConfirm: () => void;
   onEdit: () => void;
 }) {
   const { paymentMethods } = useFinance();
@@ -155,6 +159,7 @@ function ExpenseDetailModal({
             label="Forma de pagamento"
             value={getPaymentMethodName(expense.paymentMethodId)}
           />
+
           {(expense.category.toLowerCase() === "gasolina" ||
             expense.fuelLiters ||
             expense.fuelPricePerLiter ||
@@ -162,7 +167,9 @@ function ExpenseDetailModal({
             expense.fuelType) && (
             <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <div className="flex items-center justify-between text-slate-200">
-                <span className="text-sm font-semibold">Detalhes do abastecimento</span>
+                <span className="text-sm font-semibold">
+                  Detalhes do abastecimento
+                </span>
               </div>
               <div className="space-y-1 text-sm">
                 {expense.fuelLiters !== undefined && (
@@ -178,10 +185,16 @@ function ExpenseDetailModal({
                   />
                 )}
                 {expense.fuelStation && (
-                  <DetailRow label="Posto / Estabelecimento" value={expense.fuelStation} />
+                  <DetailRow
+                    label="Posto / Estabelecimento"
+                    value={expense.fuelStation}
+                  />
                 )}
                 {expense.fuelType && (
-                  <DetailRow label="Tipo de gasolina" value={expense.fuelType} />
+                  <DetailRow
+                    label="Tipo de gasolina"
+                    value={expense.fuelType}
+                  />
                 )}
               </div>
             </div>
@@ -190,7 +203,9 @@ function ExpenseDetailModal({
           {expense.isReceipt && expense.receiptItems?.length ? (
             <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <div className="flex items-center justify-between text-slate-200">
-                <span className="text-sm font-semibold">Detalhes do cupom</span>
+                <span className="text-sm font-semibold">
+                  Detalhes do cupom
+                </span>
                 <span className="text-xs text-slate-400">
                   {expense.receiptItems.length} itens
                 </span>
@@ -240,7 +255,7 @@ function ExpenseDetailModal({
           </button>
           <button
             className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
-            onClick={onDelete}
+            onClick={onConfirm}
           >
             Excluir saída
           </button>
@@ -253,12 +268,12 @@ function ExpenseDetailModal({
 function IncomeDetailModal({
   income,
   onClose,
-  onDelete,
+  onConfirm,
   onEdit,
 }: {
   income: Income;
   onClose: () => void;
-  onDelete: () => void;
+  onConfirm: () => void;
   onEdit: () => void;
 }) {
   return (
@@ -303,7 +318,7 @@ function IncomeDetailModal({
           </button>
           <button
             className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
-            onClick={onDelete}
+            onClick={onConfirm}
           >
             Excluir entrada
           </button>
@@ -466,14 +481,14 @@ function CategoryDetailsPanel({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center justify_between">
+      <div className="mb-3 flex items-center justify-between">
         <div>
-            <h2
-              className="text-sm font-semibold text-slate-100"
-              style={TITLE_SHADOW}
-            >
-              Detalhes da Categoria
-            </h2>
+          <h2
+            className="text-sm font-semibold text-slate-100"
+            style={TITLE_SHADOW}
+          >
+            Detalhes da Categoria
+          </h2>
           <p className="text-xs text-slate-400">
             Categoria selecionada: {category} · {monthLabel}
           </p>
@@ -525,9 +540,9 @@ export default function FinanceDashboard() {
     expenses,
     incomes,
     loading,
+    loadIncomes,
+    loadExpenses,
     updateExpenseStatus,
-    deleteExpense,
-    deleteIncome,
   } = useFinance();
   const { categories, loading: loadingCategories } = useCategories();
   const navigate = useNavigate();
@@ -541,12 +556,18 @@ export default function FinanceDashboard() {
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(
     null,
   );
-  const [selectedIncomeId, setSelectedIncomeId] = useState<string | null>(
-    null,
-  );
+  const [selectedIncomeId, setSelectedIncomeId] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
   const [isReceiptModalOpen, setReceiptModalOpen] = useState(false);
+  const initialLoad = useRef(false);
+
+  useEffect(() => {
+    if (initialLoad.current) return;
+    initialLoad.current = true;
+    loadIncomes();
+    loadExpenses();
+  }, [loadExpenses, loadIncomes]);
 
   const colorFallbacks = [
     "#0EA5E9",
@@ -638,7 +659,6 @@ export default function FinanceDashboard() {
     return result.sort((a, b) => b.total - a.total);
   }, [filteredExpenses, categoryPalette, totalSaidas]);
 
-
   // Evolução mensal e resumos inteligentes
   const monthlyEvolution: MonthlySummary[] = useMemo(
     () => getMonthlySummary(expenses, incomes, selectedYear),
@@ -728,7 +748,7 @@ export default function FinanceDashboard() {
 
     const total = categoryExpenses.reduce(
       (acc, expense) => acc + Math.abs(expense.amount),
-      0
+      0,
     );
 
     return categoryExpenses
@@ -868,7 +888,7 @@ export default function FinanceDashboard() {
           }`}
           onClick={() => setViewMode("saidas")}
         >
-          <div className="flex items-center justify_between">
+          <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-400">Gastos do período</p>
               <p className="mt-1 text-lg font-semibold text-slate-100">
@@ -882,6 +902,7 @@ export default function FinanceDashboard() {
           </div>
         </button>
       </div>
+
       {/* ÁREA PRINCIPAL */}
       {viewMode === "geral" && (
         <>
@@ -952,13 +973,21 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="entradas"
                       position="top"
-                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : formatCurrency(Number(value ?? 0))}
+                      formatter={(value: any) =>
+                        Number(value ?? 0) === 0
+                          ? ""
+                          : formatCurrency(Number(value ?? 0))
+                      }
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualEntradasMes"
                       position="insideBottom"
-                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : `${Number(value ?? 0).toFixed(1)}%`}
+                      formatter={(value: any) =>
+                        Number(value ?? 0) === 0
+                          ? ""
+                          : `${Number(value ?? 0).toFixed(1)}%`
+                      }
                       fill="#bfdbfe"
                       className="text-[11px]"
                     />
@@ -972,13 +1001,21 @@ export default function FinanceDashboard() {
                     <LabelList
                       dataKey="saidas"
                       position="top"
-                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : formatCurrency(Number(value ?? 0))}
+                      formatter={(value: any) =>
+                        Number(value ?? 0) === 0
+                          ? ""
+                          : formatCurrency(Number(value ?? 0))
+                      }
                       className="text-[11px] fill-slate-100"
                     />
                     <LabelList
                       dataKey="percentualSaidasMes"
                       position="insideBottom"
-                      formatter={(value: any) => Number(value ?? 0) === 0 ? "" : `${Number(value ?? 0).toFixed(1)}%`}
+                      formatter={(value: any) =>
+                        Number(value ?? 0) === 0
+                          ? ""
+                          : `${Number(value ?? 0).toFixed(1)}%`
+                      }
                       fill="#fecdd3"
                       className="text-[11px]"
                     />
@@ -1064,14 +1101,16 @@ export default function FinanceDashboard() {
 
                       <Pie
                         data={
-                          hasCategorySelected ? detailedCategoryStats : categoryStats
+                          hasCategorySelected
+                            ? detailedCategoryStats
+                            : categoryStats
                         }
                         dataKey="total"
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                      innerRadius={72}
-                      outerRadius={104}
+                        innerRadius={72}
+                        outerRadius={104}
                         paddingAngle={3}
                         stroke="#0f172a"
                         strokeWidth={4}
@@ -1116,10 +1155,14 @@ export default function FinanceDashboard() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
-                      <span className="text-sm font-medium text-slate-100">Todos</span>
+                      <span className="text-sm font-medium text-slate-100">
+                        Todos
+                      </span>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm text-slate-100">{formatCurrency(totalSaidas)}</div>
+                      <div className="text-sm text-slate-100">
+                        {formatCurrency(totalSaidas)}
+                      </div>
                       <div className="text-xs text-slate-400">100.0%</div>
                     </div>
                   </div>
@@ -1181,6 +1224,7 @@ export default function FinanceDashboard() {
               )}
             </div>
           </div>
+
           {/* Linha 2: Resumo do mês + pesquisa de preços */}
           <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
             <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -1219,11 +1263,16 @@ export default function FinanceDashboard() {
                       const isMaiorCategoria =
                         highlightedCategory &&
                         categoryComparisons.length > 0 &&
-                        highlightedCategory.category === categoryComparisons[0].category;
+                        highlightedCategory.category ===
+                          categoryComparisons[0].category;
                       const variacaoMaiorGasto =
                         (highlightedCategory?.diferencaValor ?? 0) > 0;
-                      const variacaoTexto = variacaoMaiorGasto ? "Gasto subiu" : "Gasto caiu";
-                      const variacaoCor = variacaoMaiorGasto ? "text-rose-300" : "text-emerald-300";
+                      const variacaoTexto = variacaoMaiorGasto
+                        ? "Gasto subiu"
+                        : "Gasto caiu";
+                      const variacaoCor = variacaoMaiorGasto
+                        ? "text-rose-300"
+                        : "text-emerald-300";
                       const variacaoIcon = variacaoMaiorGasto ? (
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       ) : (
@@ -1244,14 +1293,22 @@ export default function FinanceDashboard() {
                                 )}`
                               : "-"}
                           </p>
-                          <p className={`flex items-center gap-2 text-xs ${variacaoCor}`}>
+                          <p
+                            className={`flex items-center gap-2 text-xs ${variacaoCor}`}
+                          >
                             {variacaoIcon}
                             <span>{variacaoTexto}</span>
                             <span className="text-slate-500">
                               {highlightedCategory
                                 ? `${highlightedCategory.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
-                                    Math.abs(highlightedCategory.diferencaValor),
-                                  )} (${highlightedCategory.diferencaPercentual >= 0 ? "+" : ""}${highlightedCategory.diferencaPercentual.toFixed(
+                                    Math.abs(
+                                      highlightedCategory.diferencaValor,
+                                    ),
+                                  )} (${
+                                    highlightedCategory.diferencaPercentual >= 0
+                                      ? "+"
+                                      : ""
+                                  }${highlightedCategory.diferencaPercentual.toFixed(
                                     1,
                                   )}%) vs mês passado`
                                 : "Sem variação"}
@@ -1276,22 +1333,31 @@ export default function FinanceDashboard() {
                       {formatCurrency(monthTrend.totalAtual)} · Saídas
                     </p>
                     {(() => {
-                      const acimaMedia = monthTrend.totalAtual > monthTrend.mediaHistorica;
-                      const cor = acimaMedia ? "text-rose-300" : "text-emerald-300";
+                      const acimaMedia =
+                        monthTrend.totalAtual > monthTrend.mediaHistorica;
+                      const cor = acimaMedia
+                        ? "text-rose-300"
+                        : "text-emerald-300";
                       const icone = acimaMedia ? (
                         <ArrowUpRight className="h-3.5 w-3.5" />
                       ) : (
                         <ArrowDownRight className="h-3.5 w-3.5" />
                       );
-                      const label = acimaMedia ? "Acima da média (3m)" : "Abaixo da média (3m)";
+                      const label = acimaMedia
+                        ? "Acima da média (3m)"
+                        : "Abaixo da média (3m)";
                       return (
                         <p className={`flex items-center gap-2 text-xs ${cor}`}>
                           {icone}
                           <span>{label}</span>
                           <span className="text-slate-500">
-                            {`${monthTrend.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
+                            {`${
+                              monthTrend.diferencaValor >= 0 ? "+" : "-"
+                            }${formatCurrency(
                               Math.abs(monthTrend.diferencaValor),
-                            )} (${monthTrend.diferencaPercentual >= 0 ? "+" : ""}${monthTrend.diferencaPercentual.toFixed(
+                            )} (${
+                              monthTrend.diferencaPercentual >= 0 ? "+" : ""
+                            }${monthTrend.diferencaPercentual.toFixed(
                               1,
                             )}%) vs média últimos 3 meses`}
                           </span>
@@ -1299,7 +1365,8 @@ export default function FinanceDashboard() {
                       );
                     })()}
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Média (3 meses): {formatCurrency(monthTrend.mediaHistorica)}
+                      Média (3 meses):{" "}
+                      {formatCurrency(monthTrend.mediaHistorica)}
                     </p>
                   </div>
 
@@ -1309,9 +1376,14 @@ export default function FinanceDashboard() {
                     {(() => {
                       const percentual =
                         incomeCommitment.totalEntradasMes > 0
-                          ? (incomeCommitment.totalSaidasMes / incomeCommitment.totalEntradasMes) * 100
+                          ? (incomeCommitment.totalSaidasMes /
+                              incomeCommitment.totalEntradasMes) *
+                            100
                           : 0;
-                      const percentualClamped = Math.min(100, Math.max(0, percentual));
+                      const percentualClamped = Math.min(
+                        100,
+                        Math.max(0, percentual),
+                      );
                       return (
                         <>
                           <p className="mt-1 text-lg font-semibold text-slate-100">
@@ -1327,7 +1399,8 @@ export default function FinanceDashboard() {
                       );
                     })()}
                     <p className="text-xs text-slate-500">
-                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} · Avulsas:{" "}
+                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} ·
+                      Avulsas:{" "}
                       {formatCurrency(incomeCommitment.totalAvulsas)}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
@@ -1562,11 +1635,24 @@ export default function FinanceDashboard() {
             updateExpenseStatus(selectedExpense.id, status);
             setSelectedExpenseId(null);
           }}
-          onDelete={() => {
-            if (confirm("Confirma excluir esta saída?")) {
-              deleteExpense(selectedExpense.id);
-              setSelectedExpenseId(null);
+          onConfirm={async () => {
+            if (!selectedExpense) return;
+            const confirmed = confirm("Confirma excluir esta saída?");
+            if (!confirmed) return;
+
+            const { error } = await supabase
+              .from("expenses")
+              .delete()
+              .eq("id", selectedExpense.id);
+
+            if (error) {
+              console.error("Erro ao deletar saída no Supabase:", error);
+              alert(error.message || "Erro ao deletar saída no Supabase.");
+              return;
             }
+
+            await loadExpenses();
+            setSelectedExpenseId(null);
           }}
           onEdit={() => navigate(`/saidas/editar/${selectedExpense.id}`)}
         />
@@ -1576,11 +1662,25 @@ export default function FinanceDashboard() {
         <IncomeDetailModal
           income={selectedIncome}
           onClose={() => setSelectedIncomeId(null)}
-          onDelete={() => {
-            if (confirm("Confirma excluir esta entrada?")) {
-              deleteIncome(selectedIncome.id);
-              setSelectedIncomeId(null);
+          onConfirm={async () => {
+            if (!selectedIncome) return;
+
+            const confirmed = confirm("Confirma excluir esta entrada?");
+            if (!confirmed) return;
+
+            const { error } = await supabase
+              .from("incomes")
+              .delete()
+              .eq("id", selectedIncome.id);
+
+            if (error) {
+              console.error("Erro ao deletar entrada no Supabase:", error);
+              alert(error.message || "Erro ao deletar entrada no Supabase.");
+              return;
             }
+
+            await loadIncomes();
+            setSelectedIncomeId(null);
           }}
           onEdit={() => navigate(`/entradas/editar/${selectedIncome.id}`)}
         />

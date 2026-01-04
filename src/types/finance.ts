@@ -40,6 +40,18 @@ export interface Expense {
   receiptItems?: ReceiptItem[];
 }
 
+// Linha da tabela public.expenses no Supabase
+export interface SupabaseExpenseRow {
+  id: string;
+  user_id: string | null;
+  date: string;
+  description: string;
+  amount: number;
+  category: string | null;
+  payment_me: string | null;
+  created_at: string;
+}
+
 export interface Income {
   id: string;
   date: string; // yyyy-mm-dd

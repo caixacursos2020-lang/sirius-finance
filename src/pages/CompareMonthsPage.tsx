@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   Bar,
@@ -33,6 +33,7 @@ type MonthStat = {
 const renderSaldoLabel = (props: any) => {
   const { x, y, value } = props;
   if (value == null) return null;
+
   return (
     <text
       x={x}
@@ -63,12 +64,21 @@ type MonthlyPoint = {
 };
 
 export default function CompareMonthsPage() {
-  const { expenses, incomes } = useFinance();
+  const { expenses, incomes, loading, loadIncomes, loadExpenses } = useFinance();
   const { categories } = useCategories();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [startMonth, setStartMonth] = useState(0);
   const [endMonth, setEndMonth] = useState(now.getMonth());
+
+  const initialLoad = useRef(false);
+
+  useEffect(() => {
+    if (initialLoad.current) return;
+    initialLoad.current = true;
+    loadIncomes();
+    loadExpenses();
+  }, [loadExpenses, loadIncomes]);
 
   // IDs das categorias selecionadas manualmente
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
@@ -302,6 +312,14 @@ export default function CompareMonthsPage() {
       </div>
     );
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100">
+        Carregando dados...
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

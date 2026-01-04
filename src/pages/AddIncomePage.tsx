@@ -1,10 +1,10 @@
-import { useState, type FormEvent, useMemo, useEffect } from "react";
+import { useState, type FormEvent, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFinance } from "../contexts/FinanceContext";
 import { useIncomeSources } from "../contexts/IncomeSourcesContext";
 
 export default function AddIncomePage() {
-  const { addIncome } = useFinance();
+  const { addIncome, loadIncomes, loadExpenses, loading } = useFinance();
   const { sources } = useIncomeSources();
   const navigate = useNavigate();
 
@@ -12,6 +12,16 @@ export default function AddIncomePage() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [source, setSource] = useState("");
+  const [saving, setSaving] = useState(false);
+  const initialLoad = useRef(false);
+
+  useEffect(() => {
+    if (initialLoad.current) return;
+    initialLoad.current = true;
+    loadIncomes();
+    loadExpenses();
+  }, [loadExpenses, loadIncomes]);
+
 
   const sourceNames = useMemo(() => sources.map((s) => s.name), [sources]);
 
@@ -22,8 +32,9 @@ export default function AddIncomePage() {
     }
   }, [source, sourceNames]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     const value = parseFloat(amount.replace(",", "."));
     if (!description || !amount || Number.isNaN(value) || value <= 0 || !date) {
       alert("Preencha descrição, data e um valor maior que zero.");
@@ -34,22 +45,37 @@ export default function AddIncomePage() {
       return;
     }
 
-    addIncome({
+    setSaving(true);
+    const result = await addIncome({
       date,
       description,
       amount: value,
       source,
     });
+    setSaving(false);
+
+    if (result?.error) {
+      alert(result.error);
+      return;
+    }
 
     navigate("/");
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100">
+        Carregando dados...
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Adicionar entrada</h1>
         <span className="text-xs text-slate-500">
-          Entradas ficam salvas localmente (localStorage)
+          Entradas ficam salvas no Supabase
         </span>
       </div>
 
@@ -114,9 +140,10 @@ export default function AddIncomePage() {
 
         <button
           type="submit"
-          className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-sm font-medium"
+          disabled={saving}
+          className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 px-3 py-2 text-sm font-medium disabled:opacity-60"
         >
-          Salvar entrada
+          {saving ? "Salvando..." : "Salvar entrada"}
         </button>
       </form>
     </div>
