@@ -795,7 +795,7 @@ export default function FinanceDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-[1200px] mx-auto px-4 space-y-6">
       {/* HEADER */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -835,7 +835,7 @@ export default function FinanceDashboard() {
       </div>
 
       {/* CARDS RESUMO */}
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         <button
           className={`rounded-xl border px-4 py-3 text-left transition ${
             viewMode === "geral"
@@ -1046,7 +1046,7 @@ export default function FinanceDashboard() {
           </div>
 
           {/* Linha 1: Donut + lista de Categorias */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {/* Donut */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="mb-2 flex items-center justify-between">
@@ -1232,7 +1232,7 @@ export default function FinanceDashboard() {
                 <span style={TITLE_SHADOW}>Resumo do mês</span>
               </h2>
               <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {/* Maior saída */}
                   {(() => {
                     const biggestExpense = topExpenses[0];
