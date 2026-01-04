@@ -13,10 +13,12 @@ export default function MainLayout({ children }: { children?: ReactNode }) {
       : "bg-slate-800 hover:bg-slate-700";
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 overflow-x-hidden">
-      <header className="border-b border-slate-800 bg-slate-950 px-4 py-4 sm:px-6">
-        <div className="mx-auto flex max-w-[1200px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-50 overflow-x-hidden">
+      {/* TOPO */}
+      <header className="border-b border-slate-800 bg-slate-950">
+        <div className="mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 px-3 py-4 sm:px-6">
           <h1 className="text-lg font-semibold">SIRIUS - App Financeiro</h1>
+
           <nav
             className="relative flex w-full flex-wrap items-center gap-2 text-sm sm:w-auto"
             onMouseLeave={() => setOpenMenu(null)}
@@ -61,9 +63,13 @@ export default function MainLayout({ children }: { children?: ReactNode }) {
               isActive={isActive}
             />
 
-            <Link className={`px-3 py-2 rounded-md ${isActive("/banco")}`} to="/banco">
+            <Link
+              className={`px-3 py-2 rounded-md ${isActive("/banco")}`}
+              to="/banco"
+            >
               Carteira
             </Link>
+
             <button
               type="button"
               onClick={() => signOut()}
@@ -74,8 +80,10 @@ export default function MainLayout({ children }: { children?: ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="px-4 py-6 sm:px-6">
-        <div className="mx-auto max-w-[1200px]">
+
+      {/* CONTEÚDO PRINCIPAL */}
+      <main className="py-6">
+        <div className="mx-auto w-full max-w-[1200px] px-3 sm:px-6">
           {children ?? <Outlet />}
         </div>
       </main>
@@ -108,6 +116,7 @@ function Dropdown({
       >
         {label}
       </button>
+
       {isOpen && (
         <div className="absolute right-0 top-full mt-1 w-48 rounded-md border border-slate-800 bg-slate-900 shadow-lg">
           {items.map((item) => (
