@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+// src/components/prices/PriceResearchPanel.tsx
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ResponsiveContainer,
   Line,
-  BarChart,
+  ComposedChart,
   Bar,
   Cell,
   CartesianGrid,
@@ -11,7 +12,14 @@ import {
   Tooltip as RechartsTooltip,
   LabelList,
 } from "recharts";
-import clsx from "clsx";
+import { savePriceEntryToSupabase } from "../../services/priceResearchDb";
+
+/**
+ * Pequeno helper de classes pra não depender do pacote "clsx".
+ */
+function cn(...args: Array<string | false | null | undefined>) {
+  return args.filter(Boolean).join(" ");
+}
 
 // Tipos básicos
 type Subcategory = {
@@ -98,13 +106,17 @@ const defaultCategories: Category[] = [
   },
 ];
 
+const HAS_WINDOW = typeof window !== "undefined";
+
 // Helpers de persistência
 function loadCategories(): Category[] {
+  if (!HAS_WINDOW) return defaultCategories;
   try {
     const raw = localStorage.getItem(CATEGORIES_STORAGE_KEY);
     if (!raw) return defaultCategories;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return defaultCategories;
+
     // Normaliza estrutura legada (cuts -> subcategories)
     const normalized = parsed.map((c: any, idx: number) => ({
       id: c.id ?? `cat-${idx}`,
@@ -129,6 +141,7 @@ function loadCategories(): Category[] {
 }
 
 function saveCategories(categories: Category[]) {
+  if (!HAS_WINDOW) return;
   try {
     localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
   } catch {
@@ -137,11 +150,13 @@ function saveCategories(categories: Category[]) {
 }
 
 function loadEntries(): PriceEntry[] {
+  if (!HAS_WINDOW) return [];
   try {
     const raw = localStorage.getItem(ENTRIES_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
+
     // Normaliza estrutura legada (cutId -> subcategoryId)
     return parsed.map((e: any, idx: number) => ({
       id: e.id ?? `entry-${idx}`,
@@ -157,6 +172,7 @@ function loadEntries(): PriceEntry[] {
 }
 
 function saveEntries(entries: PriceEntry[]) {
+  if (!HAS_WINDOW) return;
   try {
     localStorage.setItem(ENTRIES_STORAGE_KEY, JSON.stringify(entries));
   } catch {
@@ -165,6 +181,7 @@ function saveEntries(entries: PriceEntry[]) {
 }
 
 function loadEstablishments(): string[] {
+  if (!HAS_WINDOW) return [];
   try {
     const raw = localStorage.getItem(ESTABLISHMENTS_STORAGE_KEY);
     if (!raw) return [];
@@ -177,6 +194,7 @@ function loadEstablishments(): string[] {
 }
 
 function saveEstablishments(establishments: string[]) {
+  if (!HAS_WINDOW) return;
   try {
     localStorage.setItem(ESTABLISHMENTS_STORAGE_KEY, JSON.stringify(establishments));
   } catch {
@@ -186,7 +204,7 @@ function saveEstablishments(establishments: string[]) {
 
 // Helpers de formatação
 function formatCurrencyBRL(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return value.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
@@ -213,6 +231,32 @@ function formatMonthYear(dateIso: string) {
   }
 }
 
+/**
+ * Parser robusto para pt-BR:
+ * - "34,90" -> 34.90
+ * - "1.234,56" -> 1234.56
+ * - "1234.56" -> 1234.56
+ */
+function parseBRLToNumber(input: string): number {
+  const v = (input ?? "").trim();
+  if (!v) return NaN;
+
+  // remove espaços e R$
+  const cleaned = v.replace(/\s/g, "").replace(/^R\$\s?/, "");
+
+  // se tiver vírgula, assume formato pt-BR
+  if (cleaned.includes(",")) {
+    const noThousands = cleaned.replace(/\./g, "");
+    const normalized = noThousands.replace(",", ".");
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  // sem vírgula: tenta como decimal padrão
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 type ChartPoint = {
   date: string;
   label: string;
@@ -224,10 +268,12 @@ type ChartPoint = {
 
 function PriceTooltip({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null;
-  const p = payload[0].payload as ChartPoint;
+  const p = payload[0]?.payload as ChartPoint | undefined;
+  if (!p) return null;
+
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-      <div className="font-semibold text-slate-100 mb-1">{label}</div>
+      <div className="mb-1 font-semibold text-slate-100">{label}</div>
       <div className="text-slate-200">Preço: {formatCurrencyBRL(p.price)}</div>
       {p.movingAvg !== null && (
         <div className="text-slate-300">Média móvel: {formatCurrencyBRL(p.movingAvg)}</div>
@@ -249,10 +295,10 @@ function MetricsCard({
   className?: string;
 }) {
   return (
-    <div className={clsx("rounded-lg border border-slate-800 bg-slate-950 px-4 py-3", className)}>
+    <div className={cn("rounded-lg border border-slate-800 bg-slate-950 px-4 py-3", className)}>
       <p className="text-xs text-slate-400">{title}</p>
       <p className="mt-1 text-lg font-semibold text-slate-100">{value}</p>
-      <p className="text-[11px] text-slate-500 mt-1">{helper}</p>
+      <p className="mt-1 text-[11px] text-slate-500">{helper}</p>
     </div>
   );
 }
@@ -301,9 +347,7 @@ export default function PriceResearchPanel() {
     // Se nenhuma categoria estiver selecionada, não força seleção automática
     if (!selectedCategory) return;
     // Remove subcategorias que não pertencem mais à categoria
-    setSelectedSubcategoryIds((prev) =>
-      prev.filter((id) => selectedCategory.subcategories.some((s) => s.id === id)),
-    );
+    setSelectedSubcategoryIds((prev) => prev.filter((id) => selectedCategory.subcategories.some((s) => s.id === id)));
   }, [selectedCategory]);
 
   // Entradas filtradas: primeiro por meses, depois opcional por categoria/subcategoria
@@ -357,25 +401,29 @@ export default function PriceResearchPanel() {
 
   // Dados do gráfico (ordenados) com média móvel simples de 3 registros
   const chartDataBySubcategory = useMemo(() => {
-    // Retorna um mapa subId -> pontos (ordenados asc)
     const map = new Map<string, ChartPoint[]>();
     const grouped = selectedSubcategoryIds.length
       ? selectedSubcategoryIds
       : selectedCategory
         ? selectedCategory.subcategories.map((s) => s.id)
         : [];
+
     grouped.forEach((subId) => {
       const asc = filteredEntries
         .filter((e) => e.subcategoryId === subId)
         .sort((a, b) => a.date.localeCompare(b.date));
+
       const data: ChartPoint[] = [];
       const window: number[] = [];
+
       asc.forEach((entry, idx) => {
         window.push(entry.price);
         if (window.length > 3) window.shift();
+
         const movingAvg = window.length ? window.reduce((acc, v) => acc + v, 0) / window.length : null;
         const prev = idx > 0 ? asc[idx - 1] : null;
         const pctChange = prev && prev.price !== 0 ? ((entry.price - prev.price) / prev.price) * 100 : null;
+
         data.push({
           date: entry.date,
           label: formatShortDate(entry.date),
@@ -385,8 +433,10 @@ export default function PriceResearchPanel() {
           store: entry.store,
         });
       });
+
       map.set(subId, data);
     });
+
     return map;
   }, [filteredEntries, selectedCategory, selectedSubcategoryIds]);
 
@@ -394,6 +444,7 @@ export default function PriceResearchPanel() {
     if (!lastEntry || !averageLast30Days) return null;
     const diff = lastEntry.price - averageLast30Days;
     const pct = (diff / averageLast30Days) * 100;
+
     if (Math.abs(pct) < 3) {
       return "Preço atual está alinhado à média recente. Sem grandes oscilações.";
     }
@@ -406,22 +457,26 @@ export default function PriceResearchPanel() {
   // Resumo mensal para comparação mês a mês
   const monthlySummary = useMemo(() => {
     if (!filteredEntries.length) return null;
+
     const monthMap = new Map<string, { sum: number; count: number }>();
     filteredEntries.forEach((e) => {
-      const key = e.date.slice(0, 7);
+      const key = e.date.slice(0, 7); // yyyy-MM
       const current = monthMap.get(key) ?? { sum: 0, count: 0 };
       current.sum += e.price;
       current.count += 1;
       monthMap.set(key, current);
     });
+
     const sorted = Array.from(monthMap.entries()).sort((a, b) => b[0].localeCompare(a[0]));
     if (!sorted.length) return null;
+
     const [currentKey, currentVal] = sorted[0];
     const prev = sorted[1];
+
     const mediaAtual = currentVal.sum / currentVal.count;
     const mediaAnterior = prev ? prev[1].sum / prev[1].count : null;
-    const variacao =
-      mediaAnterior && mediaAnterior !== 0 ? ((mediaAtual - mediaAnterior) / mediaAnterior) * 100 : null;
+    const variacao = mediaAnterior && mediaAnterior !== 0 ? ((mediaAtual - mediaAnterior) / mediaAnterior) * 100 : null;
+
     return {
       mediaAtual,
       mediaAnterior,
@@ -442,11 +497,10 @@ export default function PriceResearchPanel() {
           .map((s) => s.name)
           .join(", ")
       : "todas subcategorias";
+
     const catName = selectedCategory?.name ?? "";
 
-    const ultimoMes = monthlySummary?.currentLabel
-      ? formatMonthYear(`${monthlySummary.currentLabel}-01`)
-      : "";
+    const ultimoMes = monthlySummary?.currentLabel ? formatMonthYear(`${monthlySummary.currentLabel}-01`) : "";
     const mediaAtual = monthlySummary?.mediaAtual ?? null;
     const variacao = monthlySummary?.variacao ?? null;
 
@@ -458,11 +512,14 @@ export default function PriceResearchPanel() {
           : `Queda de ${Math.abs(variacao).toFixed(1)}% vs mês anterior.`;
 
     const maxTxt = maxEntry
-      ? `Maior: ${formatCurrencyBRL(maxEntry.price)} (${formatShortDate(maxEntry.date)}${maxEntry.store ? ` · ${maxEntry.store}` : ""
+      ? `Maior: ${formatCurrencyBRL(maxEntry.price)} (${formatShortDate(maxEntry.date)}${
+          maxEntry.store ? ` · ${maxEntry.store}` : ""
         })`
       : "";
+
     const minTxt = minEntry
-      ? `Menor: ${formatCurrencyBRL(minEntry.price)} (${formatShortDate(minEntry.date)}${minEntry.store ? ` · ${minEntry.store}` : ""
+      ? `Menor: ${formatCurrencyBRL(minEntry.price)} (${formatShortDate(minEntry.date)}${
+          minEntry.store ? ` · ${minEntry.store}` : ""
         })`
       : "";
 
@@ -477,13 +534,14 @@ export default function PriceResearchPanel() {
     }. ${variacaoTexto} ${maxTxt}${maxTxt && minTxt ? " · " : ""}${minTxt}`;
   }, [filteredEntries.length, maxEntry, minEntry, monthlySummary, selectedCategory, selectedSubcategoryIds]);
 
-  const handleRegisterPrice = (e: React.FormEvent) => {
+  const handleRegisterPrice = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedCategory || !selectedSubcategoryIds.length) return;
 
-    const value = Number(priceInput.replace(".", "").replace(",", "."));
-    if (!value || value <= 0) return;
+    const value = parseBRLToNumber(priceInput);
+    if (!Number.isFinite(value) || value <= 0) return;
 
+    // Mantém 1 subcategoria para registro (simples e direto)
     const targetSubcategoryId = selectedSubcategoryIds[0];
 
     const newEntry: PriceEntry = {
@@ -496,12 +554,32 @@ export default function PriceResearchPanel() {
     };
 
     setEntries((prev) => [newEntry, ...prev]);
+
     if (newEntry.store) {
       const newStore = newEntry.store;
       setEstablishments((prev) => (prev.includes(newStore) ? prev : [...prev, newStore]));
     }
+
     setPriceInput("");
     setStore("");
+
+    // Grava no Supabase (sem dual-write para não duplicar no localStorage)
+    try {
+      const subName =
+        selectedCategory.subcategories.find((s) => s.id === targetSubcategoryId)?.name ??
+        targetSubcategoryId;
+
+      await savePriceEntryToSupabase({
+        categoryName: selectedCategory.name,
+        subcategoryName: subName,
+        price: newEntry.price,
+        date: newEntry.date,
+        store: newEntry.store,
+        source: "manual",
+      });
+    } catch (err) {
+      console.error("[PriceResearchPanel] Erro ao salvar no Supabase:", err);
+    }
   };
 
   const handleAddEstablishment = () => {
@@ -514,11 +592,12 @@ export default function PriceResearchPanel() {
 
   // CRUD categorias/subcategorias
   const handleAddCategory = () => {
+    const now = Date.now();
     const newCategory: Category = {
-      id: `cat-${Date.now()}`,
+      id: `cat-${now}`,
       name: "Nova categoria",
       color: palette[(categories.length + 1) % palette.length],
-      subcategories: [{ id: `sub-${Date.now()}`, name: "Nova subcategoria" }],
+      subcategories: [{ id: `sub-${now}`, name: "Nova subcategoria" }],
     };
     setCategories((prev) => [...prev, newCategory]);
     setEditingCategory(newCategory);
@@ -583,8 +662,9 @@ export default function PriceResearchPanel() {
 
   const handleSaveEdit = () => {
     if (!editingEntry) return;
-    const priceNumber = Number(editingPrice.replace(",", "."));
-    if (!priceNumber || priceNumber <= 0) return;
+
+    const priceNumber = parseBRLToNumber(editingPrice);
+    if (!Number.isFinite(priceNumber) || priceNumber <= 0) return;
 
     setEntries((prev) =>
       prev.map((e) =>
@@ -593,36 +673,31 @@ export default function PriceResearchPanel() {
               ...e,
               date: editingDate || e.date,
               price: priceNumber,
-              store: editingStore || undefined,
+              store: editingStore.trim() ? editingStore.trim() : undefined,
             }
           : e,
       ),
     );
+
     handleCloseEdit();
   };
 
   const toggleMonthFilter = (monthIndex: number) => {
-    setSelectedMonths((prev) =>
-      prev.includes(monthIndex) ? prev.filter((m) => m !== monthIndex) : [...prev, monthIndex],
-    );
+    setSelectedMonths((prev) => (prev.includes(monthIndex) ? prev.filter((m) => m !== monthIndex) : [...prev, monthIndex]));
   };
 
   const clearMonthFilter = () => setSelectedMonths([]);
 
   const toggleSubcategory = (subId: string) => {
-    setSelectedSubcategoryIds((prev: string[]) =>
-      prev.includes(subId) ? prev.filter((id) => id !== subId) : [...prev, subId],
-    );
+    setSelectedSubcategoryIds((prev) => (prev.includes(subId) ? prev.filter((id) => id !== subId) : [...prev, subId]));
   };
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 space-y-6">
+    <div className="space-y-6 rounded-xl border border-slate-800 bg-slate-900 p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-100">Pesquisa de preços (Itens recorrentes)</h2>
-          <p className="text-sm text-slate-400">
-            Compare categorias e subcategorias para decidir quando comprar.
-          </p>
+          <p className="text-sm text-slate-400">Compare categorias e subcategorias para decidir quando comprar.</p>
         </div>
         <button
           type="button"
@@ -640,13 +715,14 @@ export default function PriceResearchPanel() {
             setSelectedCategoryId(null);
             setSelectedSubcategoryIds([]);
           }}
-          className={clsx(
+          className={cn(
             "rounded-full px-4 py-1.5 text-sm transition-colors",
             !selectedCategoryId ? "bg-emerald-600 text-slate-900" : "bg-slate-800 text-slate-200 hover:bg-slate-700",
           )}
         >
           Todas
         </button>
+
         {categories.map((category) => {
           const active = category.id === selectedCategoryId;
           return (
@@ -657,7 +733,7 @@ export default function PriceResearchPanel() {
                 setSelectedCategoryId(category.id);
                 setSelectedSubcategoryIds([]);
               }}
-              className={clsx(
+              className={cn(
                 "rounded-full px-4 py-1.5 text-sm transition-colors",
                 active ? "bg-emerald-600 text-slate-900" : "bg-slate-800 text-slate-200 hover:bg-slate-700",
               )}
@@ -666,9 +742,8 @@ export default function PriceResearchPanel() {
             </button>
           );
         })}
-        {!categories.length && (
-          <p className="text-sm text-slate-500">Nenhuma categoria cadastrada.</p>
-        )}
+
+        {!categories.length && <p className="text-sm text-slate-500">Nenhuma categoria cadastrada.</p>}
       </div>
 
       {selectedCategory && (
@@ -680,7 +755,7 @@ export default function PriceResearchPanel() {
                 key={sub.id}
                 type="button"
                 onClick={() => toggleSubcategory(sub.id)}
-                className={clsx(
+                className={cn(
                   "rounded-full px-3 py-1 text-xs transition-colors",
                   active ? "bg-emerald-500 text-slate-900" : "bg-slate-800 text-slate-200 hover:bg-slate-700",
                 )}
@@ -695,17 +770,14 @@ export default function PriceResearchPanel() {
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 space-y-2">
+      <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
         <div className="flex items-center justify-between">
           <p className="text-sm font-semibold text-slate-100">Filtrar meses</p>
-          <button
-            type="button"
-            onClick={clearMonthFilter}
-            className="text-xs text-emerald-300 hover:text-emerald-200"
-          >
+          <button type="button" onClick={clearMonthFilter} className="text-xs text-emerald-300 hover:text-emerald-200">
             Limpar
           </button>
         </div>
+
         <div className="flex flex-wrap gap-2 text-xs">
           {MONTHS_LABEL.map((m, idx) => {
             const active = selectedMonths.includes(idx);
@@ -714,7 +786,7 @@ export default function PriceResearchPanel() {
                 key={m}
                 type="button"
                 onClick={() => toggleMonthFilter(idx)}
-                className={clsx(
+                className={cn(
                   "rounded-full border px-3 py-1 transition",
                   active
                     ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
@@ -738,13 +810,14 @@ export default function PriceResearchPanel() {
               : "Registre o primeiro preço para começar."
           }
         />
+
         <MetricsCard
           title="Variação vs anterior"
           value={
             variation
-              ? `${variation.diff > 0 ? "+" : ""}${formatCurrencyBRL(variation.diff)} (${
-                  variation.pct > 0 ? "+" : ""
-                }${variation.pct.toFixed(1)}%)`
+              ? `${variation.diff > 0 ? "+" : ""}${formatCurrencyBRL(variation.diff)} (${variation.pct > 0 ? "+" : ""}${variation.pct.toFixed(
+                  1,
+                )}%)`
               : "—"
           }
           helper={
@@ -754,41 +827,25 @@ export default function PriceResearchPanel() {
                 ? "Precisa de pelo menos dois registros."
                 : "Sem dados suficientes."
           }
-          className={
-            variation
-              ? variation.diff > 0
-                ? "border-rose-700/60"
-                : "border-emerald-700/60"
-              : undefined
-          }
+          className={variation ? (variation.diff > 0 ? "border-rose-700/60" : "border-emerald-700/60") : undefined}
         />
+
         <MetricsCard
           title="Média últimos 30 dias"
           value={averageLast30Days ? formatCurrencyBRL(averageLast30Days) : "—"}
-          helper={
-            averageLast30Days
-              ? "Baseada nos registros dos últimos 30 dias."
-              : "Sem dados suficientes nos últimos 30 dias."
-          }
+          helper={averageLast30Days ? "Baseada nos registros dos últimos 30 dias." : "Sem dados suficientes nos últimos 30 dias."}
         />
+
         <MetricsCard
           title="Maior / menor preço"
-          value={
-            minEntry && maxEntry
-              ? `${formatCurrencyBRL(minEntry.price)} · ${formatCurrencyBRL(maxEntry.price)}`
-              : "—"
-          }
-          helper={
-            minEntry && maxEntry
-              ? `${formatShortDate(minEntry.date)} · ${formatShortDate(maxEntry.date)}`
-              : "Registre mais preços para ver a faixa histórica."
-          }
+          value={minEntry && maxEntry ? `${formatCurrencyBRL(minEntry.price)} · ${formatCurrencyBRL(maxEntry.price)}` : "—"}
+          helper={minEntry && maxEntry ? `${formatShortDate(minEntry.date)} · ${formatShortDate(maxEntry.date)}` : "Registre mais preços para ver a faixa histórica."}
         />
       </div>
 
       {insight && (
         <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100">
-          <span className="font-semibold text-emerald-300 mr-1">Insight:</span>
+          <span className="mr-1 font-semibold text-emerald-300">Insight:</span>
           {insight}
         </div>
       )}
@@ -804,6 +861,7 @@ export default function PriceResearchPanel() {
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
             />
           </div>
+
           <div className="space-y-1">
             <label className="text-xs text-slate-400">Valor (R$)</label>
             <input
@@ -814,7 +872,9 @@ export default function PriceResearchPanel() {
               onChange={(e) => setPriceInput(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-emerald-500"
             />
+            <p className="text-[11px] text-slate-500">Aceita “34,90” e “1.234,56”.</p>
           </div>
+
           <div className="space-y-1">
             <label className="text-xs text-slate-400">Local (Estabelecimento)</label>
             <input
@@ -830,6 +890,7 @@ export default function PriceResearchPanel() {
                 <option key={est} value={est} />
               ))}
             </datalist>
+
             <div className="mt-2 space-y-2 rounded-md border border-slate-800 bg-slate-950/60 p-2">
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -837,7 +898,7 @@ export default function PriceResearchPanel() {
                   placeholder="Cadastrar novo estabelecimento"
                   value={newEstablishment}
                   onChange={(e) => setNewEstablishment(e.target.value)}
-                  className="flex-1 min-w-[160px] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none focus:border-emerald-500"
+                  className="min-w-[160px] flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none focus:border-emerald-500"
                 />
                 <button
                   type="button"
@@ -847,13 +908,11 @@ export default function PriceResearchPanel() {
                   Salvar estabelecimento
                 </button>
               </div>
+
               {!!establishments.length && (
                 <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
                   {establishments.map((est) => (
-                    <div
-                      key={est}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1"
-                    >
+                    <div key={est} className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1">
                       <button
                         type="button"
                         onClick={() => setStore(est)}
@@ -881,10 +940,10 @@ export default function PriceResearchPanel() {
         <button
           type="submit"
           disabled={!selectedCategory || !selectedSubcategoryIds.length || !priceInput.trim()}
-          className={clsx(
+          className={cn(
             "mt-1 w-full rounded-md py-2 text-sm font-semibold transition-colors",
             !selectedCategory || !selectedSubcategoryIds.length || !priceInput.trim()
-              ? "bg-slate-700 text-slate-300 cursor-not-allowed"
+              ? "cursor-not-allowed bg-slate-700 text-slate-300"
               : "bg-emerald-600 text-slate-900 hover:bg-emerald-500",
           )}
         >
@@ -906,21 +965,25 @@ export default function PriceResearchPanel() {
                 : "Nenhuma subcategoria selecionada"}
             </span>
           </div>
+
           <div className="space-y-4">
             {selectedSubcategoryIds.length === 0 && (
               <div className="flex h-[120px] items-center justify-center text-sm text-slate-500">
                 Selecione subcategorias para visualizar o gráfico.
               </div>
             )}
+
             {selectedSubcategoryIds.map((subId) => {
               const sub = selectedCategory?.subcategories.find((s) => s.id === subId);
               const data = chartDataBySubcategory.get(subId) ?? [];
+
               return (
                 <div key={subId} className="h-[220px] rounded-lg border border-slate-800 bg-slate-900/60 p-2">
                   <div className="mb-1 text-xs text-slate-300">{sub ? sub.name : subId}</div>
+
                   {data.length ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data} margin={{ top: 28, right: 12, left: -4, bottom: 14 }}>
+                      <ComposedChart data={data} margin={{ top: 28, right: 12, left: -4, bottom: 14 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                         <XAxis
                           dataKey="label"
@@ -937,38 +1000,26 @@ export default function PriceResearchPanel() {
                           tickFormatter={(value: any) => formatCurrencyBRL(Number(value ?? 0))}
                         />
                         <RechartsTooltip content={<PriceTooltip />} />
+
                         <Bar dataKey="price" name="Preço" radius={[6, 6, 0, 0]}>
                           <LabelList
                             dataKey="price"
                             position="top"
-                            formatter={(value: any) =>
-                              Number(value ?? 0) > 0 ? formatCurrencyBRL(Number(value ?? 0)) : ""
-                            }
-                            className="text-[14px] fill-slate-100 font-semibold"
+                            formatter={(value: any) => (Number(value ?? 0) > 0 ? formatCurrencyBRL(Number(value ?? 0)) : "")}
+                            className="fill-slate-100 text-[14px] font-semibold"
                           />
                           {data.map((entry, idx) => (
-                            <Cell
-                              key={`${subId}-${idx}`}
-                              fill={
-                                entry.pctChange && entry.pctChange > 0
-                                  ? "#ef4444"
-                                  : "#22c55e"
-                              }
-                            />
+                            <Cell key={`${subId}-${idx}`} fill={entry.pctChange && entry.pctChange > 0 ? "#ef4444" : "#22c55e"} />
                           ))}
                         </Bar>
+
                         <Line
                           type="monotone"
                           dataKey="movingAvg"
                           name="Média móvel (3 registros)"
                           stroke="#38bdf8"
                           strokeWidth={2}
-                          dot={{
-                            r: 4,
-                            strokeWidth: 2,
-                            stroke: "#38bdf8",
-                            fill: "#020617",
-                          }}
+                          dot={{ r: 4, strokeWidth: 2, stroke: "#38bdf8", fill: "#020617" }}
                           activeDot={{ r: 5 }}
                           connectNulls
                         >
@@ -976,23 +1027,19 @@ export default function PriceResearchPanel() {
                             dataKey="pctChange"
                             position="bottom"
                             formatter={(value: any) =>
-                              value === null || value === undefined
-                                ? ""
-                                : `${value > 0 ? "+" : ""}${Number(value).toFixed(1)}%`
+                              value === null || value === undefined ? "" : `${value > 0 ? "+" : ""}${Number(value).toFixed(1)}%`
                             }
-                            className="text-[16px] fill-slate-100 font-semibold"
+                            className="fill-slate-100 text-[16px] font-semibold"
                             style={{
                               textShadow:
                                 "0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.9)",
                             }}
                           />
                         </Line>
-                      </BarChart>
+                      </ComposedChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-slate-500">
-                      Sem dados para esta subcategoria.
-                    </div>
+                    <div className="flex h-full items-center justify-center text-xs text-slate-500">Sem dados para esta subcategoria.</div>
                   )}
                 </div>
               );
@@ -1001,7 +1048,8 @@ export default function PriceResearchPanel() {
         </div>
 
         <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-100 mb-2">Histórico recente</h3>
+          <h3 className="mb-2 text-sm font-semibold text-slate-100">Histórico recente</h3>
+
           <div className="mb-2 flex items-center justify-end text-[11px] text-slate-300">
             <label className="flex items-center gap-2">
               Limite de linhas:
@@ -1018,6 +1066,7 @@ export default function PriceResearchPanel() {
               </select>
             </label>
           </div>
+
           <div className="max-h-[240px] overflow-y-auto">
             {filteredEntries.length ? (
               <table className="min-w-full text-xs">
@@ -1031,6 +1080,7 @@ export default function PriceResearchPanel() {
                     <th className="py-1 text-right">Ações</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-800">
                   {filteredEntries.slice(0, historyLimit).map((entry) => {
                     const cat = categories.find((c) => c.id === entry.categoryId);
@@ -1041,23 +1091,13 @@ export default function PriceResearchPanel() {
                         <td className="py-1 text-slate-300">{cat?.name ?? entry.categoryId}</td>
                         <td className="py-1 text-slate-300">{sub?.name ?? entry.subcategoryId}</td>
                         <td className="py-1 text-slate-300">{entry.store ?? "-"}</td>
-                        <td className="py-1 text-right text-slate-100">
-                          {formatCurrencyBRL(entry.price)}
-                        </td>
+                        <td className="py-1 text-right text-slate-100">{formatCurrencyBRL(entry.price)}</td>
                         <td className="py-1 text-right text-[11px]">
                           <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              className="text-sky-300 hover:text-sky-200"
-                              onClick={() => handleEditEntry(entry)}
-                            >
+                            <button type="button" className="text-sky-300 hover:text-sky-200" onClick={() => handleEditEntry(entry)}>
                               Editar
                             </button>
-                            <button
-                              type="button"
-                              className="text-rose-300 hover:text-rose-200"
-                              onClick={() => handleDeleteEntry(entry.id)}
-                            >
+                            <button type="button" className="text-rose-300 hover:text-rose-200" onClick={() => handleDeleteEntry(entry.id)}>
                               Excluir
                             </button>
                           </div>
@@ -1068,29 +1108,24 @@ export default function PriceResearchPanel() {
                 </tbody>
               </table>
             ) : (
-              <p className="text-sm text-slate-500">
-                Ainda não há registros para esta categoria e subcategoria.
-              </p>
+              <p className="text-sm text-slate-500">Ainda não há registros para esta categoria e subcategoria.</p>
             )}
           </div>
         </div>
       </div>
 
       <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-200">
-        <h3 className="text-sm font-semibold text-slate-100 mb-1">Resumo automático</h3>
+        <h3 className="mb-1 text-sm font-semibold text-slate-100">Resumo automático</h3>
         <p>{summaryText}</p>
       </div>
 
+      {/* MODAL: editar registro */}
       {editingEntry && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-100">Editar registro</h3>
-              <button
-                type="button"
-                onClick={handleCloseEdit}
-                className="text-xs text-slate-400 hover:text-slate-200"
-              >
+              <button type="button" onClick={handleCloseEdit} className="text-xs text-slate-400 hover:text-slate-200">
                 Fechar
               </button>
             </div>
@@ -1102,8 +1137,7 @@ export default function PriceResearchPanel() {
                   {categories.find((c) => c.id === editingEntry.categoryId)?.name ?? editingEntry.categoryId} ·{" "}
                   {categories
                     .find((c) => c.id === editingEntry.categoryId)
-                    ?.subcategories.find((s) => s.id === editingEntry.subcategoryId)?.name ??
-                    editingEntry.subcategoryId}
+                    ?.subcategories.find((s) => s.id === editingEntry.subcategoryId)?.name ?? editingEntry.subcategoryId}
                 </p>
               </div>
 
@@ -1159,10 +1193,11 @@ export default function PriceResearchPanel() {
         </div>
       )}
 
+      {/* MODAL: gerenciar categorias */}
       {isConfigOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-800 bg-slate-950 p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-3">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-100">Gerenciar categorias e subcategorias</h3>
               <button
                 type="button"
@@ -1180,11 +1215,9 @@ export default function PriceResearchPanel() {
               {categories.map((category) => (
                 <div
                   key={category.id}
-                  className={clsx(
+                  className={cn(
                     "rounded-lg border px-3 py-3",
-                    editingCategory?.id === category.id
-                      ? "border-emerald-500 bg-slate-900"
-                      : "border-slate-800 bg-slate-900/60",
+                    editingCategory?.id === category.id ? "border-emerald-500 bg-slate-900" : "border-slate-800 bg-slate-900/60",
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -1199,6 +1232,7 @@ export default function PriceResearchPanel() {
                       }
                       className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none focus:border-emerald-500"
                     />
+
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -1235,10 +1269,9 @@ export default function PriceResearchPanel() {
                         </button>
                       </div>
                     ))}
+
                     {!category.subcategories.length && (
-                      <p className="text-[11px] text-slate-500">
-                        Nenhuma subcategoria cadastrada. Use “+ Subcategoria”.
-                      </p>
+                      <p className="text-[11px] text-slate-500">Nenhuma subcategoria cadastrada. Use “+ Subcategoria”.</p>
                     )}
                   </div>
                 </div>

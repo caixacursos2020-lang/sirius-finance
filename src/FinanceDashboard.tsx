@@ -1,1690 +1,458 @@
-﻿// src/FinanceDashboard.tsx
-import {
-  Bar,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  LabelList,
-  Legend,
-  Line,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
+﻿import {
+  Bar, CartesianGrid, ComposedChart, LabelList, Line, Pie, PieChart,
+  ResponsiveContainer, Tooltip, Legend, XAxis, YAxis, Cell, Sector
 } from "recharts";
-
-import { Wallet2, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { 
+  Wallet2, ArrowDownRight, ArrowUpRight, TrendingUp, Filter, Pencil, Trash2, X, Tag, 
+  CheckCircle2, CreditCard, ShoppingCart, Search, BarChart3, ChevronRight, Clock,
+  MapPin, FileText, Calendar, CheckSquare, Square
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-
-import {
-  useFinance,
-  type Expense,
-  type ExpenseStatus,
-  type Income,
-} from "./contexts/FinanceContext";
-import { supabase } from "./supabaseClient";
+import { useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
+import { useFinance } from "./contexts/FinanceContext";
 import { useCategories } from "./contexts/CategoriesContext";
 import ReceiptImportModal from "./components/receipts/ReceiptImportModal";
 import { formatCurrency, formatDate } from "./utils/formatters";
-import {
-  ENTRADAS_COLOR,
-  SAIDAS_COLOR,
-  SALDO_COLOR,
-} from "./constants/chartColors";
-import {
-  getMonthlySummary,
-  getCategoryMonthComparison,
-  getMonthTrend,
-  getIncomeCommitment,
-} from "./utils/finance";
-import type { MonthlySummary } from "./types/finance";
-import PriceResearchPanel from "./components/prices/PriceResearchPanel";
+import { supabase } from "./supabaseClient"; // Necessário para exclusão em massa
 
-type CategoryDonutItem = {
-  id: string;
-  name: string;
-  total: number;
-  percent: number;
-  color: string;
-  date?: string; // opcional – usado no detalhamento
-};
+const SOLID_BLUE = "#3b82f6"; 
+const SOLID_RED = "#ef4444";  
+const COLOR_SALDO = "#FACC15"; 
 
-const TITLE_SHADOW = {
-  textShadow:
-    "0 3px 10px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.75), 0 0 18px rgba(0,0,0,0.6)",
-};
-
-function DetailRow({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-slate-400">{label}</span>
-      <span className="text-right text-slate-100">{value}</span>
-    </div>
-  );
-}
-
-// --- Modais ---
-
-function ExpenseDetailModal({
-  expense,
-  onClose,
-  onToggleStatus,
-  onConfirm,
-  onEdit,
-}: {
-  expense: Expense;
-  onClose: () => void;
-  onToggleStatus: (status: ExpenseStatus) => void;
-  onConfirm: () => void;
-  onEdit: () => void;
-}) {
+// --- MODAL DE DETALHES ---
+function TransactionModal({ item, type, onClose, onDelete, onEdit }: any) {
   const { paymentMethods } = useFinance();
+  if (!item) return null;
 
-  const getPaymentMethodName = (id: string | null | undefined): string => {
-    if (!id) return "Não informado / Outro";
-    const method = paymentMethods.find((m) => m.id === id);
-    return method?.name ?? "Não informado / Outro";
-  };
-
-  const nextStatus: ExpenseStatus =
-    expense.status === "paga" ? "pendente" : "paga";
+  // Tenta buscar o nome do pagamento
+  const paymentMethodName = paymentMethods.find((pm: any) => pm.id === item.paymentMethodId)?.name || "Não informado";
+  
+  // Tenta mostrar o local (mesmo que o Context antigo não mande, deixamos preparado)
+  const locationName = item.receiptStore || item.location || "Local não informado";
+  const observationText = item.observation || item.obs || null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h3
-            className="text-lg font-semibold text-slate-100"
-            style={TITLE_SHADOW}
-          >
-            Detalhes da saída
-          </h3>
-          <button
-            className="text-sm text-slate-400 hover:text-slate-200"
-            onClick={onClose}
-          >
-            Fechar
-          </button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors"><X size={20} /></button>
+        <h3 className="text-lg font-bold text-slate-100 mb-6 text-center border-b border-slate-800 pb-4">
+          Detalhes da {type === 'expense' ? 'Saída' : 'Entrada'}
+        </h3>
+        
+        <div className="flex flex-col items-center mb-6">
+          <span className={clsx("text-4xl font-black tracking-tight", type === 'expense' ? "text-rose-400" : "text-emerald-400")}>
+            {formatCurrency(Math.abs(item.amount))}
+          </span>
+          {type === 'expense' && (
+             <span className={clsx("mt-2 px-3 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider", item.status === 'paga' ? "bg-emerald-950/30 text-emerald-400 border-emerald-900" : "bg-amber-950/30 text-amber-400 border-amber-900")}>
+                {item.status === 'paga' ? 'PAGO' : 'PENDENTE'}
+             </span>
+          )}
         </div>
 
-        <div className="mt-4 space-y-3 text-sm">
-          <DetailRow label="Descrição" value={expense.description} />
-          {expense.receiptStore && (
-            <DetailRow label="Loja" value={expense.receiptStore} />
-          )}
-          <DetailRow label="Categoria" value={expense.category} />
-          <DetailRow
-            label="Valor"
-            value={
-              <span className="text-rose-300">
-                - {formatCurrency(Math.abs(expense.amount))}
-              </span>
-            }
-          />
-          <DetailRow label="Data da saída" value={formatDate(expense.date)} />
-          <DetailRow
-            label="Data de vencimento"
-            value={expense.dueDate ? formatDate(expense.dueDate) : "-"}
-          />
-          <DetailRow
-            label="Tipo"
-            value={expense.isFixed ? "Conta fixa" : "Gasto avulso"}
-          />
-          <DetailRow
-            label="Situação"
-            value={
-              <span
-                className={
-                  expense.status === "paga"
-                    ? "text-emerald-300"
-                    : "text-amber-300"
-                }
-              >
-                {expense.status === "paga" ? "Paga" : "Pendente"}
-              </span>
-            }
-          />
-          <DetailRow
-            label="Recorrência"
-            value={
-              expense.isRecurring
-                ? `Todo dia ${expense.recurrenceDay ?? "-"}`
-                : "Não recorrente"
-            }
-          />
-          <DetailRow
-            label="Forma de pagamento"
-            value={getPaymentMethodName(expense.paymentMethodId)}
-          />
-
-          {(expense.category.toLowerCase() === "gasolina" ||
-            expense.fuelLiters ||
-            expense.fuelPricePerLiter ||
-            expense.fuelStation ||
-            expense.fuelType) && (
-            <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <div className="flex items-center justify-between text-slate-200">
-                <span className="text-sm font-semibold">
-                  Detalhes do abastecimento
-                </span>
-              </div>
-              <div className="space-y-1 text-sm">
-                {expense.fuelLiters !== undefined && (
-                  <DetailRow
-                    label="Litros abastecidos"
-                    value={`${expense.fuelLiters.toFixed(2)} L`}
-                  />
-                )}
-                {expense.fuelPricePerLiter !== undefined && (
-                  <DetailRow
-                    label="Preço por litro"
-                    value={formatCurrency(expense.fuelPricePerLiter)}
-                  />
-                )}
-                {expense.fuelStation && (
-                  <DetailRow
-                    label="Posto / Estabelecimento"
-                    value={expense.fuelStation}
-                  />
-                )}
-                {expense.fuelType && (
-                  <DetailRow
-                    label="Tipo de gasolina"
-                    value={expense.fuelType}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {expense.isReceipt && expense.receiptItems?.length ? (
-            <div className="mt-2 space-y-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <div className="flex items-center justify-between text-slate-200">
-                <span className="text-sm font-semibold">
-                  Detalhes do cupom
-                </span>
-                <span className="text-xs text-slate-400">
-                  {expense.receiptItems.length} itens
-                </span>
-              </div>
-              <div className="max-h-40 overflow-y-auto overflow-x-hidden">
-                <table className="min-w-full text-xs">
-                  <thead className="border-b border-slate-800 text-slate-400">
-                    <tr>
-                      <th className="py-1 text-left">Item</th>
-                      <th className="py-1 text-right">Qtd</th>
-                      <th className="py-1 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {expense.receiptItems.map((item) => (
-                      <tr key={item.id}>
-                        <td className="max-w-[150px] truncate py-1 pr-2 text-slate-100">
-                          {item.description}
-                        </td>
-                        <td className="py-1 text-right text-slate-200">
-                          {item.quantity || 1}
-                        </td>
-                        <td className="py-1 text-right text-rose-200">
-                          {formatCurrency(item.total)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
+        <div className="mb-6 text-center">
+           <p className="text-slate-100 font-medium text-lg leading-tight">{item.description}</p>
+           <p className="text-slate-500 text-[10px] uppercase font-bold mt-1">Descrição</p>
         </div>
 
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <button
-            className="rounded-md border border-emerald-600 px-3 py-2 text-sm text-emerald-300 transition-colors hover:bg-emerald-600/10"
-            onClick={() => onToggleStatus(nextStatus)}
-          >
-            Marcar como {nextStatus === "paga" ? "paga" : "pendente"}
-          </button>
-          <button
-            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 transition-colors hover:bg-sky-600/10"
-            onClick={onEdit}
-          >
-            Editar saída
-          </button>
-          <button
-            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
-            onClick={onConfirm}
-          >
-            Excluir saída
-          </button>
+        <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800/50 mb-6 grid grid-cols-2 gap-y-5 gap-x-4">
+          <div className="flex flex-col gap-1">
+             <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black uppercase"><Calendar size={12}/> Data</div>
+             <p className="text-slate-200 text-sm font-medium">{formatDate(item.date)}</p>
+          </div>
+          {type === 'expense' && (
+            <div className="flex flex-col gap-1">
+               <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black uppercase"><Tag size={12}/> Categoria</div>
+               <p className="text-slate-200 text-sm font-medium truncate">{item.category}</p>
+            </div>
+          )}
+          <div className="flex flex-col gap-1">
+             <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black uppercase"><MapPin size={12}/> Local</div>
+             <p className="text-slate-400 text-sm italic truncate">{locationName}</p>
+          </div>
+          {type === 'expense' && (
+            <div className="flex flex-col gap-1">
+               <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black uppercase"><CreditCard size={12}/> Pagamento</div>
+               <p className="text-slate-200 text-sm font-medium truncate">{paymentMethodName}</p>
+            </div>
+          )}
+        </div>
+
+        {observationText && (
+          <div className="mb-6 bg-slate-900/30 p-3 rounded-lg border border-slate-800/30">
+             <div className="flex items-center gap-2 text-slate-500 text-[10px] font-black uppercase mb-1"><FileText size={12}/> Observações</div>
+             <p className="text-slate-300 text-sm italic leading-relaxed">"{observationText}"</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+            <button onClick={onEdit} className="h-10 rounded-xl border border-slate-700 bg-slate-900/50 text-sky-400 hover:bg-sky-950/30 hover:border-sky-800 font-bold text-sm transition-all flex items-center justify-center gap-2">
+                <Pencil size={16}/> Editar
+            </button>
+            <button onClick={onDelete} className="h-10 rounded-xl border border-slate-700 bg-slate-900/50 text-rose-400 hover:bg-rose-950/30 hover:border-rose-800 font-bold text-sm transition-all flex items-center justify-center gap-2">
+                <Trash2 size={16}/> Excluir
+            </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PriceSummaryWidget() {
+  const navigate = useNavigate();
+  const [stats, setStats] = useState({ count: 0, minPrice: 0, minPriceItem: "-", lastStore: "-", lastDate: "-" });
+  useEffect(() => {
+    try {
+      const data = JSON.parse(localStorage.getItem("sirius-price-research-entries") || "[]");
+      const cats = JSON.parse(localStorage.getItem("sirius-price-research-categories") || "[]");
+      if (data.length > 0) {
+        const cheapest = data.reduce((p: any, c: any) => Number(c.price) < Number(p.price) ? c : p);
+        let itemName = "Item";
+        cats.forEach((c: any) => { const sub = c.subcategories?.find((s: any) => s.id === cheapest.subcategoryId); if (sub) itemName = sub.name; });
+        setStats({ count: data.length, minPrice: Number(cheapest.price), minPriceItem: itemName, lastStore: data[0].store || "Loja", lastDate: data[0].date ? formatDate(data[0].date) : "-" });
+      }
+    } catch {}
+  }, []);
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 mt-6 shadow-lg">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2"><Search size={18} className="text-purple-400"/> Rastreamento de Preços</h2>
+        <button onClick={() => navigate("/analise-produtos")} className="text-xs flex items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors font-bold uppercase tracking-wider">Ver Painel <ChevronRight size={14} /></button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div onClick={() => navigate("/analise-produtos")} className="cursor-pointer bg-slate-950 border border-slate-800 p-4 rounded-xl hover:border-purple-500/50 transition-all relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20"><ShoppingCart size={40} className="text-purple-500"/></div>
+          <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Itens Rastreados</p><p className="text-2xl font-bold text-slate-100">{stats.count}</p>
+        </div>
+        <div onClick={() => navigate("/analise-produtos")} className="cursor-pointer bg-slate-950 border border-slate-800 p-4 rounded-xl hover:border-emerald-500/50 transition-all relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20"><Tag size={40} className="text-emerald-500"/></div>
+          <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Menor Preço ({stats.minPriceItem})</p><p className="text-2xl font-bold text-emerald-400">{formatCurrency(stats.minPrice)}</p>
+        </div>
+        <div onClick={() => navigate("/analise-produtos")} className="cursor-pointer bg-slate-950 border border-slate-800 p-4 rounded-xl hover:border-blue-500/50 transition-all relative overflow-hidden group">
+           <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20"><Clock size={40} className="text-blue-500"/></div>
+           <p className="text-[10px] text-slate-500 uppercase font-bold mb-1">Última Loja</p><span className="text-lg font-bold text-slate-100 truncate block">{stats.lastStore}</span>
+        </div>
+        <div onClick={() => navigate("/analise-produtos")} className="cursor-pointer bg-slate-900 border-2 border-dashed border-slate-700 p-4 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all">
+            <BarChart3 size={20} className="text-slate-400 group-hover:text-white"/><span className="font-bold text-xs text-slate-400 group-hover:text-white uppercase">Abrir Análise</span>
         </div>
       </div>
     </div>
   );
 }
 
-function IncomeDetailModal({
-  income,
-  onClose,
-  onConfirm,
-  onEdit,
-}: {
-  income: Income;
-  onClose: () => void;
-  onConfirm: () => void;
-  onEdit: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-lg">
-        <div className="flex items-center justify-between">
-          <h3
-            className="text-lg font-semibold text-slate-100"
-            style={TITLE_SHADOW}
-          >
-            Detalhes da entrada
-          </h3>
-          <button
-            className="text-sm text-slate-400 hover:text-slate-200"
-            onClick={onClose}
-          >
-            Fechar
-          </button>
-        </div>
+function calculateMonthlySummary(expenses: any[], incomes: any[], year: number) {
+  const data = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, monthLabel: new Date(year, i, 1).toLocaleDateString("pt-BR", { month: "short" }).toUpperCase(), entradas: 0, saidas: 0, saldo: 0, percEntrada: 0, percSaida: 0 }));
+  expenses.forEach((e) => { if (new Date(e.date).getFullYear() === year) data[new Date(e.date).getMonth()].saidas += Math.abs(e.amount); });
+  incomes.forEach((i) => { if (new Date(i.date).getFullYear() === year) data[new Date(i.date).getMonth()].entradas += i.amount; });
+  data.forEach((d) => { d.saldo = d.entradas - d.saidas; const total = d.entradas + d.saidas; if (total > 0) { d.percEntrada = Math.round((d.entradas / total) * 100); d.percSaida = Math.round((d.saidas / total) * 100); } });
+  return data;
+}
 
-        <div className="mt-4 space-y-3 text-sm">
-          <DetailRow label="Descrição" value={income.description} />
-          <DetailRow label="Fonte" value={income.source} />
-          <DetailRow
-            label="Valor"
-            value={
-              <span className="text-emerald-300">
-                {formatCurrency(income.amount)}
-              </span>
-            }
-          />
-          <DetailRow label="Data" value={formatDate(income.date)} />
-          <DetailRow label="Criado em" value={formatDate(income.createdAt)} />
-        </div>
-
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <button
-            className="rounded-md border border-sky-600 px-3 py-2 text-sm text-sky-300 transition-colors hover:bg-sky-600/10"
-            onClick={onEdit}
-          >
-            Editar entrada
-          </button>
-          <button
-            className="rounded-md border border-rose-600 px-3 py-2 text-sm text-rose-300 transition-colors hover:bg-rose-600/10"
-            onClick={onConfirm}
-          >
-            Excluir entrada
-          </button>
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload; 
+    return (
+      <div className="rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-md">
+        <p className="mb-2 font-bold text-slate-100 uppercase text-xs tracking-wider border-b border-slate-700 pb-1">{label}</p>
+        <div className="space-y-1 text-xs">
+          <div className="flex justify-between gap-4"><span className="text-slate-300">Entradas</span><span className="font-bold text-blue-400">{formatCurrency(data.entradas)} ({data.percEntrada}%)</span></div>
+          <div className="flex justify-between gap-4"><span className="text-slate-300">Saídas</span><span className="font-bold text-red-400">{formatCurrency(data.saidas)} ({data.percSaida}%)</span></div>
+          <div className="flex justify-between gap-4 pt-1 border-t border-slate-800 mt-1"><span className="text-slate-200">Saldo</span><span className="font-bold text-yellow-400">{formatCurrency(data.saldo)}</span></div>
         </div>
       </div>
+    );
+  }
+  return null;
+};
+
+function InfoCard({ title, value, icon: Icon, type, onClick, isActive }: any) {
+  const activeClasses = { saldo: "bg-blue-900/20 border-blue-500/50", entrada: "bg-emerald-900/20 border-emerald-500/50", saida: "bg-rose-900/20 border-rose-500/50" };
+  const iconBg = { saldo: "bg-blue-950 text-blue-400", entrada: "bg-emerald-950 text-emerald-400", saida: "bg-rose-950 text-rose-400" };
+  return (
+    <div onClick={onClick} className={clsx("cursor-pointer rounded-xl border p-4 transition-all duration-200 hover:scale-[1.02]", isActive ? activeClasses[type] : "bg-slate-900 border-slate-800 hover:border-slate-700")}>
+      <div className="flex items-center justify-between mb-2"><span className={clsx("text-sm font-medium", isActive ? "text-slate-200" : "text-slate-400")}>{title}</span><div className={clsx("p-1.5 rounded-lg", iconBg[type])}><Icon size={18} /></div></div>
+      <div className={clsx("text-2xl font-bold tracking-tight", value >= 0 ? "text-slate-100" : "text-rose-400")}>{formatCurrency(value)}</div>
     </div>
   );
 }
 
-// --- Charts ---
-
-type MonthlyTooltipItem = {
-  dataKey?: string | number;
-  value?: number | string;
+const renderActiveShape = (props: any) => {
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+  return (<g><Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 8} startAngle={startAngle} endAngle={endAngle} fill={fill} stroke="#1e293b" strokeWidth={2} /><Sector cx={cx} cy={cy} startAngle={startAngle} endAngle={endAngle} innerRadius={outerRadius + 10} outerRadius={outerRadius + 12} fill={fill} /></g>);
 };
 
-const MonthlyEvolutionTooltip = ({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: MonthlyTooltipItem[];
-  label?: string | number;
-}) => {
-  if (!active || !payload || payload.length === 0) return null;
-
-  const entradas = Number(
-    payload.find((p) => p.dataKey === "entradas")?.value ?? 0,
-  );
-  const saidas = Number(
-    payload.find((p) => p.dataKey === "saidas")?.value ?? 0,
-  );
-  const saldo = Number(
-    payload.find((p) => p.dataKey === "saldo")?.value ?? 0,
-  );
-
-  const percentualEntradasMes = Number(
-    payload.find((p) => p.dataKey === "percentualEntradasMes")?.value ?? 0,
-  );
-  const percentualSaidasMes = Number(
-    payload.find((p) => p.dataKey === "percentualSaidasMes")?.value ?? 0,
-  );
-
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-lg">
-      <div className="mb-1 font-medium text-slate-100">{label}</div>
-      <div className="space-y-1">
-        <div className="flex justify-between gap-4">
-          <span className="text-[11px] text-blue-200">Entradas:</span>
-          <span className="text-[11px] text-blue-100">
-            {formatCurrency(entradas)}{" "}
-            <span className="text-blue-300">
-              ({percentualEntradasMes.toFixed(1)}%)
-            </span>
-          </span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-[11px] text-red-200">Saídas:</span>
-          <span className="text-[11px] text-red-100">
-            {formatCurrency(saidas)}{" "}
-            <span className="text-red-300">
-              ({percentualSaidasMes.toFixed(1)}%)
-            </span>
-          </span>
-        </div>
-        <div className="mt-1 flex justify-between gap-4 border-t border-slate-700 pt-1">
-          <span className="text-[11px] text-slate-300">Diferença:</span>
-          <span className="text-[11px] text-slate-100">
-            {formatCurrency(saldo)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const renderSaldoLabel = (props: any) => {
-  const { x, y, value } = props;
-  if (value == null) return null;
-  return (
-    <text
-      x={x}
-      y={y}
-      dy={-6}
-      textAnchor="middle"
-      fill="#facc15"
-      fontSize={11}
-      filter="url(#saldoLabelShadow)"
-    >
-      {formatCurrency(Number(value ?? 0))}
-    </text>
-  );
-};
-
-// Donut Chart Custom Label
-const renderCustomLabel = (props: any) => {
-  const { cx, cy, midAngle, outerRadius, fill, payload, value } = props;
+const renderCustomizedLabel = (props: any) => {
+  const { cx, cy, midAngle, outerRadius, fill, name, value, percent } = props;
   const RADIAN = Math.PI / 180;
-
-  const radius = outerRadius + 28;
+  const radius = outerRadius + 25; 
   const x = cx + radius * Math.cos(-midAngle * RADIAN);
   const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
+  const textAnchor = x > cx ? 'start' : 'end';
   return (
-    <g filter="url(#labelShadow)">
-      <text
-        x={x}
-        y={y}
-        fill={fill}
-        textAnchor={x > cx ? "start" : "end"}
-        dominantBaseline="central"
-      >
-        <tspan x={x} dy="-1.1em" fontSize="16" fontWeight="700">
-          {payload.name}
-        </tspan>
-        <tspan x={x} dy="1.2em" fontSize="14" fill="#FFFFFF">
-          {formatCurrency(value)}
-        </tspan>
-        <tspan x={x} dy="1.1em" fontSize="13" fill={fill}>
-          {payload.percent.toFixed(1)}%
-        </tspan>
-      </text>
+    <g>
+      <path d={`M${cx + (outerRadius) * Math.cos(-midAngle * RADIAN)},${cy + (outerRadius) * Math.sin(-midAngle * RADIAN)}L${x},${y}`} stroke={fill} fill="none" strokeWidth={2} opacity={0.6} />
+      <text x={x + (x > cx ? 5 : -5)} y={y} dy={-14} textAnchor={textAnchor} fill={fill} fontSize={12} fontWeight="800">{name}</text>
+      <text x={x + (x > cx ? 5 : -5)} y={y} dy={4} textAnchor={textAnchor} fill="#ffffff" fontSize={11} fontWeight="700">{formatCurrency(value)}</text>
+      <text x={x + (x > cx ? 5 : -5)} y={y} dy={20} textAnchor={textAnchor} fill={fill} fontSize={10} fontWeight="800">{`(${(percent * 100).toFixed(1)}%)`}</text>
     </g>
   );
 };
 
-const renderDonutTooltip = (props: any) => {
-  const { active, payload } = props;
-  if (!active || !payload || !payload.length) return null;
-  const item = payload[0].payload as CategoryDonutItem;
-
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl">
-      <strong className="mb-1 block text-sm text-slate-100">
-        {item.name}
-      </strong>
-      <div className="text-xs text-slate-300">
-        Total: {formatCurrency(item.total)}
-      </div>
-      <div className="text-xs text-sky-300">
-        Participação: {item.percent.toFixed(1)}%
-      </div>
-    </div>
-  );
-};
-
-function CategoryDetailsPanel({
-  category,
-  monthLabel,
-  expenses,
-  onClear,
-  onExpenseClick,
-}: {
-  category: string;
-  monthLabel: string;
-  expenses: Expense[];
-  onClear: () => void;
-  onExpenseClick: (expense: Expense) => void;
-}) {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h2
-            className="text-sm font-semibold text-slate-100"
-            style={TITLE_SHADOW}
-          >
-            Detalhes da Categoria
-          </h2>
-          <p className="text-xs text-slate-400">
-            Categoria selecionada: {category} · {monthLabel}
-          </p>
-        </div>
-        <button
-          onClick={onClear}
-          className="text-xs text-emerald-400 hover:text-emerald-300"
-        >
-          Limpar seleção
-        </button>
-      </div>
-
-      <div className="max-h-[320px] space-y-2 overflow-y-auto pr-2">
-        {expenses.map((expense) => (
-          <button
-            key={expense.id}
-            onClick={() => onExpenseClick(expense)}
-            className="w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 text-left transition-colors hover:bg-slate-800/60"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-100">
-                  {expense.description}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {formatDate(expense.date)}
-                </p>
-              </div>
-              <p className="text-sm font-semibold text-rose-300">
-                - {formatCurrency(Math.abs(expense.amount))}
-              </p>
-            </div>
-          </button>
-        ))}
-        {expenses.length === 0 && (
-          <p className="py-4 text-center text-sm text-slate-500">
-            Nenhuma saída nesta Categoria.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// --- Componente principal ---
-
 export default function FinanceDashboard() {
-  const {
-    expenses,
-    incomes,
-    loading,
-    loadIncomes,
-    loadExpenses,
-    updateExpenseStatus,
-  } = useFinance();
+  const { expenses, incomes, loading, loadIncomes, loadExpenses } = useFinance();
   const { categories, loading: loadingCategories } = useCategories();
   const navigate = useNavigate();
-
+  const initialLoad = useRef(false);
   const now = new Date();
-  const [selectedCategory, setSelectedCategory] =
-    useState<string | "todas">("todas");
-  const [viewMode, setViewMode] = useState<"geral" | "saidas" | "entradas">(
-    "geral",
-  );
-  const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(
-    null,
-  );
-  const [selectedIncomeId, setSelectedIncomeId] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [viewMode, setViewMode] = useState<"geral" | "saidas" | "entradas">("geral");
   const [isReceiptModalOpen, setReceiptModalOpen] = useState(false);
-  const initialLoad = useRef(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [selectedType, setSelectedType] = useState<'expense' | 'income' | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  
+  // --- AQUI ESTÁ A LÓGICA DE SELEÇÃO QUE VOCÊ QUERIA ---
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (initialLoad.current) return;
-    initialLoad.current = true;
-    loadIncomes();
-    loadExpenses();
-  }, [loadExpenses, loadIncomes]);
+  useEffect(() => { if (!initialLoad.current) { initialLoad.current = true; loadIncomes(); loadExpenses(); } }, []);
 
-  const colorFallbacks = [
-    "#0EA5E9",
-    "#EC4899",
-    "#8B5CF6",
-    "#22C55E",
-    "#EAB308",
-    "#F97316",
-    "#64748B",
-  ];
+  const filteredExpenses = useMemo(() => expenses.filter(e => { const d = new Date(e.date); return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear; }), [expenses, selectedMonth, selectedYear]);
+  const filteredIncomes = useMemo(() => incomes.filter(i => { const d = new Date(i.date); return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear; }), [incomes, selectedMonth, selectedYear]);
+  const totalSaidas = filteredExpenses.reduce((acc, e) => acc + Math.abs(e.amount), 0);
+  const totalEntradas = filteredIncomes.reduce((acc, i) => acc + i.amount, 0);
+  const saldoMes = totalEntradas - totalSaidas;
 
   const categoryPalette = useMemo(() => {
     const palette = new Map<string, string>();
-    categories.forEach((c) => palette.set(c.name, c.color));
-    expenses.forEach((e, idx) => {
-      if (!palette.has(e.category)) {
-        palette.set(e.category, colorFallbacks[idx % colorFallbacks.length]);
-      }
-    });
+    const fallbacks = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316"];
+    categories.forEach((c, idx) => palette.set(c.name, c.color || fallbacks[idx % fallbacks.length]));
+    expenses.forEach((e, idx) => { if (!palette.has(e.category)) palette.set(e.category, fallbacks[idx % fallbacks.length]); });
     return palette;
   }, [categories, expenses]);
 
-  const filteredExpenses = useMemo(
-    () =>
-      expenses.filter((expense) => {
-        if (!expense.date) return false;
-        const d = new Date(expense.date);
-        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
-      }),
-    [expenses, selectedMonth, selectedYear],
-  );
-
-  const incomesDoMes = useMemo(
-    () =>
-      incomes.filter((income) => {
-        if (!income.date) return false;
-        const d = new Date(income.date);
-        return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
-      }),
-    [incomes, selectedMonth, selectedYear],
-  );
-
-  const totalSaidas = useMemo(
-    () =>
-      filteredExpenses.reduce(
-        (acc, expense) => acc + Math.abs(expense.amount),
-        0,
-      ),
-    [filteredExpenses],
-  );
-
-  const totalEntradas = useMemo(
-    () => incomesDoMes.reduce((acc, income) => acc + income.amount, 0),
-    [incomesDoMes],
-  );
-
-  const saldoMes = totalEntradas - totalSaidas;
-
-  // Donut de Categorias
-  const categoryStats = useMemo<CategoryDonutItem[]>(() => {
-    const map = new Map<string, { total: number; count: number; color: string }>();
-
-    filteredExpenses.forEach((expense) => {
-      const current =
-        map.get(expense.category) ??
-        {
-          total: 0,
-          count: 0,
-          color: categoryPalette.get(expense.category) ?? colorFallbacks[0],
-        };
-      current.total += Math.abs(expense.amount);
-      current.count += 1;
-      map.set(expense.category, current);
-    });
-
-    const result: CategoryDonutItem[] = [];
-    map.forEach((value, key) => {
-      if (value.total > 0) {
-        result.push({
-          id: key,
-          name: key,
-          total: value.total,
-          percent: totalSaidas ? (value.total / totalSaidas) * 100 : 0,
-          color: value.color,
-        });
-      }
-    });
-
+  const categoryStats = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredExpenses.forEach((e) => { const current = map.get(e.category) ?? 0; map.set(e.category, current + Math.abs(e.amount)); });
+    const result: any[] = [];
+    map.forEach((total, name) => { if (total > 0) result.push({ id: name, name, total, percent: totalSaidas ? (total/totalSaidas) : 0, color: categoryPalette.get(name) ?? "#cbd5e1" }); });
     return result.sort((a, b) => b.total - a.total);
   }, [filteredExpenses, categoryPalette, totalSaidas]);
 
-  // Evolução mensal e resumos inteligentes
-  const monthlyEvolution: MonthlySummary[] = useMemo(
-    () => getMonthlySummary(expenses, incomes, selectedYear),
-    [expenses, incomes, selectedYear],
-  );
+  const monthlyEvolution = useMemo(() => calculateMonthlySummary(expenses, incomes, selectedYear), [expenses, incomes, selectedYear]);
+  
+  // Define a lista que será mostrada
+  const currentList = useMemo(() => {
+    if (viewMode === "entradas") return filteredIncomes;
+    if (viewMode === "saidas") return filteredExpenses;
+    let list = [...filteredExpenses];
+    if (selectedCategory) list = list.filter(e => e.category === selectedCategory);
+    return list.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  }, [viewMode, filteredIncomes, filteredExpenses, selectedCategory]);
 
-  const categoryComparisons = useMemo(
-    () => getCategoryMonthComparison(expenses, selectedYear, selectedMonth),
-    [expenses, selectedYear, selectedMonth],
-  );
+  const handlePrevMonth = () => { const d = new Date(selectedYear, selectedMonth - 1, 1); setSelectedMonth(d.getMonth()); setSelectedYear(d.getFullYear()); setSelectedCategory(null); setSelectedIds([]); };
+  const handleNextMonth = () => { const d = new Date(selectedYear, selectedMonth + 1, 1); setSelectedMonth(d.getMonth()); setSelectedYear(d.getFullYear()); setSelectedCategory(null); setSelectedIds([]); };
+  const currentMonthLabel = new Date(selectedYear, selectedMonth, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 
-  const [categoryHighlightIndex, setCategoryHighlightIndex] = useState(0);
-
-  useEffect(() => {
-    if (!categoryComparisons.length) {
-      setCategoryHighlightIndex(0);
-      return;
+  const openItem = (item: any, type: 'expense' | 'income') => { setSelectedItem(item); setSelectedType(type); };
+  
+  const handleDeleteItem = async () => {
+    if (!selectedItem) return;
+    if (confirm("Tem certeza que deseja excluir?")) {
+        if (selectedType === 'expense') { await supabase.from('expenses').delete().eq('id', selectedItem.id); loadExpenses(); } else { await supabase.from('incomes').delete().eq('id', selectedItem.id); loadIncomes(); }
+        setSelectedItem(null);
     }
-    const interval = setInterval(() => {
-      setCategoryHighlightIndex(
-        (prev) => (prev + 1) % categoryComparisons.length,
-      );
-    }, 7000);
-    return () => clearInterval(interval);
-  }, [categoryComparisons.length]);
+  };
+  const handleEditItem = () => { if (selectedItem) { navigate(selectedType === 'expense' ? `/saidas/editar/${selectedItem.id}` : `/entradas/editar/${selectedItem.id}`); setSelectedItem(null); } };
 
-  const highlightedCategory =
-    categoryComparisons.length > 0
-      ? categoryComparisons[categoryHighlightIndex % categoryComparisons.length]
-      : null;
-
-  const monthTrend = useMemo(
-    () => getMonthTrend(expenses, selectedYear, selectedMonth),
-    [expenses, selectedYear, selectedMonth],
-  );
-
-  const incomeCommitment = useMemo(
-    () => getIncomeCommitment(incomes, expenses, selectedYear, selectedMonth),
-    [incomes, expenses, selectedYear, selectedMonth],
-  );
-
-  const hasCategorySelected = selectedCategory !== "todas";
-
-  const baseExpenses = useMemo(
-    () =>
-      hasCategorySelected
-        ? filteredExpenses.filter((e) => e.category === selectedCategory)
-        : filteredExpenses,
-    [filteredExpenses, hasCategorySelected, selectedCategory],
-  );
-
-  const despesasOrdenadas = useMemo(
-    () =>
-      [...baseExpenses].sort((a, b) =>
-        (b.date || "").localeCompare(a.date || "", undefined, {
-          sensitivity: "base",
-        }),
-      ),
-    [baseExpenses],
-  );
-
-  const topExpenses = useMemo(
-    () => despesasOrdenadas.slice(0, 5),
-    [despesasOrdenadas],
-  );
-
-  const selectedExpense = useMemo(
-    () => despesasOrdenadas.find((d) => d.id === selectedExpenseId) ?? null,
-    [despesasOrdenadas, selectedExpenseId],
-  );
-
-  const selectedIncome = useMemo(
-    () => incomesDoMes.find((inc) => inc.id === selectedIncomeId) ?? null,
-    [incomesDoMes, selectedIncomeId],
-  );
-
-  const categoryExpenses = useMemo(
-    () =>
-      hasCategorySelected
-        ? filteredExpenses.filter((e) => e.category === selectedCategory)
-        : [],
-    [filteredExpenses, hasCategorySelected, selectedCategory],
-  );
-
-  const detailedCategoryStats = useMemo<CategoryDonutItem[]>(() => {
-    if (!hasCategorySelected) return [];
-
-    const total = categoryExpenses.reduce(
-      (acc, expense) => acc + Math.abs(expense.amount),
-      0,
-    );
-
-    return categoryExpenses
-      .map((expense, idx) => ({
-        id: expense.id,
-        name: expense.description || `Despesa ${idx + 1}`,
-        total: Math.abs(expense.amount),
-        percent: total ? (Math.abs(expense.amount) / total) * 100 : 0,
-        color: colorFallbacks[idx % colorFallbacks.length],
-        date: expense.date,
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [categoryExpenses, colorFallbacks, hasCategorySelected]);
-
-  const handlePrevMonth = () => {
-    const date = new Date(selectedYear, selectedMonth, 1);
-    date.setMonth(date.getMonth() - 1);
-    setSelectedMonth(date.getMonth());
-    setSelectedYear(date.getFullYear());
+  // --- LÓGICA DE SELEÇÃO E EXCLUSÃO EM MASSA ---
+  const toggleSelect = (id: string) => { setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]); };
+  const toggleSelectAll = () => { if (selectedIds.length === currentList.length) setSelectedIds([]); else setSelectedIds(currentList.map(i => i.id)); };
+  
+  const handleBulkDelete = async () => {
+    if (confirm(`Deseja excluir ${selectedIds.length} itens selecionados?`)) {
+      const table = viewMode === "entradas" ? "incomes" : "expenses";
+      for (const id of selectedIds) { 
+          await supabase.from(table).delete().eq('id', id); 
+      }
+      if (viewMode === "entradas") loadIncomes(); else loadExpenses();
+      setSelectedIds([]);
+    }
   };
 
-  const handleNextMonth = () => {
-    const date = new Date(selectedYear, selectedMonth, 1);
-    date.setMonth(date.getMonth() + 1);
-    setSelectedMonth(date.getMonth());
-    setSelectedYear(date.getFullYear());
-  };
-
-  const currentMonthLabel = new Date(
-    selectedYear,
-    selectedMonth,
-    1,
-  ).toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric",
-  });
-
-  if (loading || loadingCategories) {
-    return (
-      <div className="flex h-64 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 p-6 text-slate-400">
-        Carregando dados...
-      </div>
-    );
-  }
+  if (loading || loadingCategories) return <div className="p-10 text-center text-slate-400">Carregando dados...</div>;
 
   return (
-    <div className="w-full max-w-[1200px] mx-auto px-4 space-y-6">
+    <div className="w-full max-w-[1200px] mx-auto space-y-6 pb-24">
       {/* HEADER */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1
-            className="text-xl font-semibold text-slate-100"
-            style={TITLE_SHADOW}
-          >
-            Dashboard
-          </h1>
-          <p className="text-sm text-slate-400">Visão do mês</p>
-        </div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div><h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">Dashboard</h1><p className="text-sm text-slate-400">Visão geral do mês</p></div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-3 text-sm text-slate-200">
-            <button
-              className="rounded-md border border-slate-700 px-2 py-1 transition-colors hover:border-emerald-500 hover:text-emerald-400"
-              onClick={handlePrevMonth}
-            >
-              {"<"}
-            </button>
-            <span className="min-w-[140px] text-center font-medium capitalize">
-              {currentMonthLabel}
-            </span>
-            <button
-              className="rounded-md border border-slate-700 px-2 py-1 transition-colors hover:border-emerald-500 hover:text-emerald-400"
-              onClick={handleNextMonth}
-            >
-              {">"}
-            </button>
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+            <button onClick={handlePrevMonth} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors">{"<"}</button>
+            <span className="min-w-[120px] text-center text-sm font-semibold capitalize text-slate-200">{currentMonthLabel}</span>
+            <button onClick={handleNextMonth} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors">{">"}</button>
           </div>
-          <button
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-emerald-500"
-            onClick={() => setReceiptModalOpen(true)}
-          >
-            Importar cupom (beta)
-          </button>
+          <button onClick={() => setReceiptModalOpen(true)} className="flex-1 sm:flex-none rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-500 transition-colors">Importar Cupom</button>
         </div>
       </div>
 
-      {/* CARDS RESUMO */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <button
-          className={`rounded-xl border px-4 py-3 text-left transition ${
-            viewMode === "geral"
-              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
-          }`}
-          onClick={() => setViewMode("geral")}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Entradas - Saídas</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">
-                {formatCurrency(saldoMes)}
-              </p>
-              <p className="text-xs text-slate-500">Saldo do mês</p>
-            </div>
-            <div className="rounded-md bg-slate-800 p-2 text-slate-100">
-              <Wallet2 className="h-6 w-6" />
-            </div>
-          </div>
-        </button>
-
-        <button
-          className={`rounded-xl border px-4 py-3 text-left transition ${
-            viewMode === "entradas"
-              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
-          }`}
-          onClick={() => setViewMode("entradas")}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Entradas do período</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">
-                {formatCurrency(totalEntradas)}
-              </p>
-              <p className="text-xs text-slate-500">Total recebido</p>
-            </div>
-            <div className="rounded-md bg-slate-800 p-2 text-emerald-400">
-              <ArrowUpRight className="h-6 w-6" />
-            </div>
-          </div>
-        </button>
-
-        <button
-          className={`rounded-xl border px-4 py-3 text-left transition ${
-            viewMode === "saidas"
-              ? "border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10"
-              : "border-slate-800 bg-slate-900 hover:border-emerald-600/60"
-          }`}
-          onClick={() => setViewMode("saidas")}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Gastos do período</p>
-              <p className="mt-1 text-lg font-semibold text-slate-100">
-                {formatCurrency(totalSaidas)}
-              </p>
-              <p className="text-xs text-slate-500">Total gasto</p>
-            </div>
-            <div className="rounded-md bg-slate-800 p-2 text-rose-400">
-              <ArrowDownRight className="h-6 w-6" />
-            </div>
-          </div>
-        </button>
+      {/* CARDS */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <InfoCard title="Saldo" value={saldoMes} icon={Wallet2} type="saldo" isActive={viewMode === "geral"} onClick={() => { setViewMode("geral"); setSelectedIds([]); }} />
+        <InfoCard title="Entradas" value={totalEntradas} icon={ArrowUpRight} type="entrada" isActive={viewMode === "entradas"} onClick={() => { setViewMode("entradas"); setSelectedIds([]); }} />
+        <InfoCard title="Saídas" value={totalSaidas} icon={ArrowDownRight} type="saida" isActive={viewMode === "saidas"} onClick={() => { setViewMode("saidas"); setSelectedIds([]); }} />
       </div>
 
-      {/* ÁREA PRINCIPAL */}
+      {/* VISÃO GERAL (GRÁFICOS + LISTA PARCIAL) */}
       {viewMode === "geral" && (
-        <>
-          {/* Evolução mensal */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2
-                className="text-lg font-semibold text-slate-100"
-                style={TITLE_SHADOW}
-              >
-                Evolução mensal
-              </h2>
-              <p className="text-xs text-slate-400">
-                Entradas x Saídas · Ano de {selectedYear}
-              </p>
-            </div>
-            <div className="mt-4 h-[320px] md:h-[360px]">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-6">
+            <h2 className="text-lg font-semibold text-slate-100 mb-4 flex items-center gap-2"><TrendingUp size={18} className="text-blue-400"/> Evolução Anual</h2>
+            <div className="h-[320px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={monthlyEvolution}
-                  margin={{ top: 24, right: 24, bottom: 16, left: -4 }}
-                >
-                  <defs>
-                    <filter
-                      id="saldoLabelShadow"
-                      x="-30%"
-                      y="-30%"
-                      width="160%"
-                      height="160%"
-                    >
-                      <feDropShadow
-                        dx="0"
-                        dy="1.5"
-                        stdDeviation="3"
-                        floodColor="#000000"
-                        floodOpacity="0.9"
-                      />
-                    </filter>
-                  </defs>
-                  <CartesianGrid
-                    stroke="#1f2937"
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="monthLabel"
-                    tick={{ fill: "#cbd5e1", fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={{ stroke: "#334155" }}
-                  />
-                  <YAxis
-                    tick={{ fill: "#cbd5e1", fontSize: 12 }}
-                    tickFormatter={(value) =>
-                      formatCurrency(Number(value ?? 0))
-                    }
-                    width={90}
-                    tickLine={false}
-                    axisLine={{ stroke: "#334155" }}
-                  />
-                  <RechartsTooltip content={<MonthlyEvolutionTooltip />} />
-                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
-                  <Bar
-                    dataKey="entradas"
-                    name="Entradas"
-                    fill={ENTRADAS_COLOR}
-                    radius={[6, 6, 0, 0]}
-                  >
-                    <LabelList
-                      dataKey="entradas"
-                      position="top"
-                      formatter={(value: any) =>
-                        Number(value ?? 0) === 0
-                          ? ""
-                          : formatCurrency(Number(value ?? 0))
-                      }
-                      className="text-[11px] fill-slate-100"
-                    />
-                    <LabelList
-                      dataKey="percentualEntradasMes"
-                      position="insideBottom"
-                      formatter={(value: any) =>
-                        Number(value ?? 0) === 0
-                          ? ""
-                          : `${Number(value ?? 0).toFixed(1)}%`
-                      }
-                      fill="#bfdbfe"
-                      className="text-[11px]"
-                    />
+                <ComposedChart data={monthlyEvolution} margin={{ top: 20, right: 10, bottom: 0, left: 0 }}>
+                  <CartesianGrid stroke="#1e293b" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="monthLabel" tick={{ fill: "#94a3b8", fontSize: 11 }} axisLine={false} tickLine={false} dy={10} />
+                  <YAxis hide />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#ffffff05' }} />
+                  <Legend verticalAlign="top" height={36} iconType="circle" iconSize={8} formatter={(value) => <span className="text-slate-400 text-xs font-bold uppercase ml-1 mr-3">{value}</span>}/>
+                  <Bar dataKey="entradas" name="Entradas" fill={SOLID_BLUE} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                    <LabelList dataKey="entradas" position="top" formatter={(val: number) => val > 0 ? `${(val/1000).toFixed(1)}k` : ''} style={{ fill: '#60a5fa', fontSize: '10px', fontWeight: 700 }} />
+                    <LabelList dataKey="percEntrada" position="insideBottom" formatter={(val: number) => val > 0 ? `${val}%` : ''} style={{ fill: '#ffffff', fontSize: '10px', fontWeight: 600, opacity: 0.8 }} />
                   </Bar>
-                  <Bar
-                    dataKey="saidas"
-                    name="Saídas"
-                    fill={SAIDAS_COLOR}
-                    radius={[6, 6, 0, 0]}
-                  >
-                    <LabelList
-                      dataKey="saidas"
-                      position="top"
-                      formatter={(value: any) =>
-                        Number(value ?? 0) === 0
-                          ? ""
-                          : formatCurrency(Number(value ?? 0))
-                      }
-                      className="text-[11px] fill-slate-100"
-                    />
-                    <LabelList
-                      dataKey="percentualSaidasMes"
-                      position="insideBottom"
-                      formatter={(value: any) =>
-                        Number(value ?? 0) === 0
-                          ? ""
-                          : `${Number(value ?? 0).toFixed(1)}%`
-                      }
-                      fill="#fecdd3"
-                      className="text-[11px]"
-                    />
+                  <Bar dataKey="saidas" name="Saídas" fill={SOLID_RED} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                     <LabelList dataKey="saidas" position="top" formatter={(val: number) => val > 0 ? `${(val/1000).toFixed(1)}k` : ''} style={{ fill: '#f87171', fontSize: '10px', fontWeight: 700 }} />
+                     <LabelList dataKey="percSaida" position="insideBottom" formatter={(val: number) => val > 0 ? `${val}%` : ''} style={{ fill: '#ffffff', fontSize: '10px', fontWeight: 600, opacity: 0.8 }} />
                   </Bar>
-                  <Line
-                    type="monotone"
-                    dataKey="saldo"
-                    name="Saldo"
-                    stroke={SALDO_COLOR}
-                    strokeWidth={2}
-                    dot={{
-                      r: 4,
-                      stroke: SALDO_COLOR,
-                      strokeWidth: 2,
-                      fill: "#0f172a",
-                    }}
-                    activeDot={{ r: 5 }}
-                  >
-                    <LabelList
-                      dataKey="saldo"
-                      position="top"
-                      content={renderSaldoLabel}
-                    />
+                  <Line type="monotone" dataKey="saldo" name="Saldo" stroke={COLOR_SALDO} strokeWidth={3} dot={{ r: 4, fill: '#0f172a', stroke: COLOR_SALDO, strokeWidth: 2 }} activeDot={{ r: 6, fill: COLOR_SALDO }}>
+                      <LabelList dataKey="saldo" position="top" offset={15} formatter={(val: any) => Math.abs(val) >= 1000 ? `${(val/1000).toFixed(1)}k` : val} style={{ fill: COLOR_SALDO, fontSize: '11px', fontWeight: '800', textShadow: '0px 1px 2px rgba(0,0,0,0.8)' }} />
                   </Line>
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Linha 1: Donut + lista de Categorias */}
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            {/* Donut */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-              <div className="mb-2 flex items-center justify-between">
-                <h2
-                  className="text-lg font-semibold text-slate-100"
-                  style={TITLE_SHADOW}
-                >
-                  Gastos por Categoria
-                </h2>
-                <div className="flex flex-col text-right leading-tight">
-                  <span className="text-xs text-slate-500 capitalize">
-                    {currentMonthLabel}
-                  </span>
-                  {hasCategorySelected && (
-                    <span className="text-xl font-semibold text-emerald-300">
-                      {selectedCategory}
-                    </span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-6 flex flex-col">
+              <div className="flex items-center justify-between mb-4"><h2 className="text-lg font-semibold text-slate-100">{selectedCategory ? `Filtrado: ${selectedCategory}` : "Por Categoria"}</h2>{selectedCategory ? (<button onClick={() => setSelectedCategory(null)} className="flex items-center gap-1 text-xs text-rose-400 hover:text-rose-300 border border-rose-900 bg-rose-950/30 px-2 py-1 rounded"><X size={12}/> Limpar</button>) : (<span className="text-xs text-slate-500">Clique na fatia</span>)}</div>
+              <div className="w-full h-[340px] relative flex items-center justify-center -ml-2">
+                  {categoryStats.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                        <Pie activeIndex={selectedCategory ? categoryStats.findIndex(c => c.name === selectedCategory) : activeIndex} activeShape={renderActiveShape} data={categoryStats} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={105} innerRadius={65} dataKey="total" paddingAngle={3} onMouseEnter={(_, index) => setActiveIndex(index)} onClick={(data) => setSelectedCategory(selectedCategory === data.name ? null : data.name)} className="cursor-pointer focus:outline-none">
+                            {categoryStats.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} cornerRadius={4} stroke="none" style={{ outline: 'none' }} opacity={selectedCategory && selectedCategory !== entry.name ? 0.3 : 1}/>))}
+                        </Pie>
+                        </PieChart>
+                    </ResponsiveContainer>
+                  ) : (<div className="flex flex-col items-center justify-center text-slate-500"><p>Sem gastos</p></div>)}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-6 flex flex-col h-[400px] lg:h-auto">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-100">{selectedCategory ? `Gastos em ${selectedCategory}` : "Maiores Gastos"}</h2>
+                <div className="flex items-center gap-2">
+                  {selectedIds.length > 0 && (
+                    <button onClick={handleBulkDelete} className="text-xs flex items-center gap-1 bg-rose-600 text-white px-2 py-1 rounded font-bold hover:bg-rose-500">
+                      <Trash2 size={12}/> Excluir ({selectedIds.length})
+                    </button>
                   )}
+                  <span className="text-xs bg-slate-800 text-slate-400 px-2 py-1 rounded-md">{currentList.length} itens</span>
                 </div>
               </div>
-
-              <div className="flex h-full flex-col items-center justify-center">
-                <div className="relative h-[380px] w-full overflow-visible">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart
-                      margin={{
-                        top: 40,
-                        right: 60,
-                        bottom: 90,
-                        left: 60,
-                      }}
-                    >
-                      <defs>
-                        <filter
-                          id="labelShadow"
-                          x="-35%"
-                          y="-35%"
-                          width="170%"
-                          height="170%"
-                        >
-                          <feDropShadow
-                            dx="0"
-                            dy="2"
-                            stdDeviation="6"
-                            floodColor="#000000"
-                            floodOpacity="1"
-                          />
-                        </filter>
-                      </defs>
-
-                      <RechartsTooltip content={renderDonutTooltip} />
-
-                      <Pie
-                        data={
-                          hasCategorySelected
-                            ? detailedCategoryStats
-                            : categoryStats
-                        }
-                        dataKey="total"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={72}
-                        outerRadius={104}
-                        paddingAngle={3}
-                        stroke="#0f172a"
-                        strokeWidth={4}
-                        labelLine={false}
-                        label={renderCustomLabel}
-                      >
-                        {(hasCategorySelected
-                          ? detailedCategoryStats
-                          : categoryStats
-                        ).map((entry) => (
-                          <Cell key={entry.id} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-
-            {/* Lista de Categorias + detalhes */}
-            <div className="flex h-full flex-col rounded-xl border border-slate-800 bg-slate-900 p-6">
-              <div className="mb-3 flex items-center justify-between">
-                <h2
-                  className="text-lg font-semibold text-slate-100"
-                  style={TITLE_SHADOW}
-                >
-                  Categorias
-                </h2>
-                <span className="text-xs text-slate-500 capitalize">
-                  {currentMonthLabel}
-                </span>
-              </div>
-              <div className="max-h-[250px] flex-1 space-y-2 overflow-y-auto pr-2">
-                <button
-                  onClick={() => setSelectedCategory("todas")}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                    selectedCategory === "todas"
-                      ? "border-emerald-500 bg-emerald-500/10"
-                      : "border-slate-800 bg-slate-950 hover:border-emerald-500/60"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
-                      <span className="text-sm font-medium text-slate-100">
-                        Todos
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm text-slate-100">
-                        {formatCurrency(totalSaidas)}
-                      </div>
-                      <div className="text-xs text-slate-400">100.0%</div>
-                    </div>
-                  </div>
-                </button>
-
-                {categoryStats.map((item) => {
-                  const active = selectedCategory === item.name;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setSelectedCategory(item.name)}
-                      className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                        active
-                          ? "border-emerald-500 bg-emerald-500/10"
-                          : "border-slate-800 bg-slate-950 hover:border-emerald-500/60"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="h-2.5 w-2.5 rounded-full"
-                            style={{ background: item.color }}
-                          />
-                          <span className="text-sm font-medium text-slate-100">
-                            {item.name}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-sm text-slate-100">
-                            {formatCurrency(item.total)}
-                          </div>
-                          <div className="text-xs text-slate-400">
-                            {item.percent.toFixed(1)}%
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {categoryStats.length === 0 && (
-                  <p className="py-4 text-center text-sm text-slate-500">
-                    Sem dados para exibir.
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4 border-t border-slate-800/70 pt-4" />
-
-              {selectedCategory && selectedCategory !== "todas" && (
-                <CategoryDetailsPanel
-                  category={selectedCategory}
-                  monthLabel={currentMonthLabel}
-                  expenses={categoryExpenses}
-                  onClear={() => setSelectedCategory("todas")}
-                  onExpenseClick={(expense) =>
-                    setSelectedExpenseId(expense.id)
-                  }
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Linha 2: Resumo do mês + pesquisa de preços */}
-          <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
-            <div className="h-full rounded-xl border border-slate-800 bg-slate-900 p-6">
-              <h2 className="mb-4 text-lg font-semibold text-slate-100">
-                <span style={TITLE_SHADOW}>Resumo do mês</span>
-              </h2>
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {/* Maior saída */}
-                  {(() => {
-                    const biggestExpense = topExpenses[0];
-                    return (
-                      <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-                        <p className="text-xs text-slate-400">
-                          Maior saída do mês
-                        </p>
-                        <p className="mt-1 text-lg font-semibold text-slate-100">
-                          {biggestExpense
-                            ? `${formatCurrency(
-                                Math.abs(biggestExpense.amount),
-                              )} · ${biggestExpense.category}`
-                            : "-"}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {biggestExpense
-                            ? formatDate(biggestExpense.date)
-                            : "Sem lançamentos"}
-                        </p>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Categoria em destaque */}
-                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-                    {(() => {
-                      const isMaiorCategoria =
-                        highlightedCategory &&
-                        categoryComparisons.length > 0 &&
-                        highlightedCategory.category ===
-                          categoryComparisons[0].category;
-                      const variacaoMaiorGasto =
-                        (highlightedCategory?.diferencaValor ?? 0) > 0;
-                      const variacaoTexto = variacaoMaiorGasto
-                        ? "Gasto subiu"
-                        : "Gasto caiu";
-                      const variacaoCor = variacaoMaiorGasto
-                        ? "text-rose-300"
-                        : "text-emerald-300";
-                      const variacaoIcon = variacaoMaiorGasto ? (
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowDownRight className="h-3.5 w-3.5" />
-                      );
-
-                      return (
-                        <>
-                          <p className="text-xs text-slate-400">
-                            {isMaiorCategoria
-                              ? "Categoria em destaque · Maior gasto do mês"
-                              : "Categoria em destaque"}
-                          </p>
-                          <p className="mt-1 text-lg font-semibold text-slate-100">
-                            {highlightedCategory
-                              ? `${highlightedCategory.category} · ${formatCurrency(
-                                  highlightedCategory.totalAtual,
-                                )}`
-                              : "-"}
-                          </p>
-                          <p
-                            className={`flex items-center gap-2 text-xs ${variacaoCor}`}
-                          >
-                            {variacaoIcon}
-                            <span>{variacaoTexto}</span>
-                            <span className="text-slate-500">
-                              {highlightedCategory
-                                ? `${highlightedCategory.diferencaValor >= 0 ? "+" : "-"}${formatCurrency(
-                                    Math.abs(
-                                      highlightedCategory.diferencaValor,
-                                    ),
-                                  )} (${
-                                    highlightedCategory.diferencaPercentual >= 0
-                                      ? "+"
-                                      : ""
-                                  }${highlightedCategory.diferencaPercentual.toFixed(
-                                    1,
-                                  )}%) vs mês passado`
-                                : "Sem variação"}
-                            </span>
-                          </p>
-                          <p className="mt-1 text-[11px] text-slate-500">
-                            {highlightedCategory
-                              ? `${highlightedCategory.participacaoNoMes.toFixed(
-                                  1,
-                                )}% das Saídas do mês`
-                              : ""}
-                          </p>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Tendência do mês */}
-                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-                    <p className="text-xs text-slate-400">Tendência do mês</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-100">
-                      {formatCurrency(monthTrend.totalAtual)} · Saídas
-                    </p>
-                    {(() => {
-                      const acimaMedia =
-                        monthTrend.totalAtual > monthTrend.mediaHistorica;
-                      const cor = acimaMedia
-                        ? "text-rose-300"
-                        : "text-emerald-300";
-                      const icone = acimaMedia ? (
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      ) : (
-                        <ArrowDownRight className="h-3.5 w-3.5" />
-                      );
-                      const label = acimaMedia
-                        ? "Acima da média (3m)"
-                        : "Abaixo da média (3m)";
-                      return (
-                        <p className={`flex items-center gap-2 text-xs ${cor}`}>
-                          {icone}
-                          <span>{label}</span>
-                          <span className="text-slate-500">
-                            {`${
-                              monthTrend.diferencaValor >= 0 ? "+" : "-"
-                            }${formatCurrency(
-                              Math.abs(monthTrend.diferencaValor),
-                            )} (${
-                              monthTrend.diferencaPercentual >= 0 ? "+" : ""
-                            }${monthTrend.diferencaPercentual.toFixed(
-                              1,
-                            )}%) vs média últimos 3 meses`}
-                          </span>
-                        </p>
-                      );
-                    })()}
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Média (3 meses):{" "}
-                      {formatCurrency(monthTrend.mediaHistorica)}
-                    </p>
-                  </div>
-
-                  {/* Renda comprometida */}
-                  <div className="rounded-lg border border-slate-800 bg-slate-950 px-4 py-3">
-                    <p className="text-xs text-slate-400">Renda comprometida</p>
-                    {(() => {
-                      const percentual =
-                        incomeCommitment.totalEntradasMes > 0
-                          ? (incomeCommitment.totalSaidasMes /
-                              incomeCommitment.totalEntradasMes) *
-                            100
-                          : 0;
-                      const percentualClamped = Math.min(
-                        100,
-                        Math.max(0, percentual),
-                      );
-                      return (
-                        <>
-                          <p className="mt-1 text-lg font-semibold text-slate-100">
-                            {percentual.toFixed(1)}% da entrada
-                          </p>
-                          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                            <div
-                              className="h-full rounded-full bg-emerald-500 transition-all"
-                              style={{ width: `${percentualClamped}%` }}
-                            />
-                          </div>
-                        </>
-                      );
-                    })()}
-                    <p className="text-xs text-slate-500">
-                      Fixas: {formatCurrency(incomeCommitment.totalFixas)} ·
-                      Avulsas:{" "}
-                      {formatCurrency(incomeCommitment.totalAvulsas)}
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Renda livre do mês: {formatCurrency(saldoMes)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Top 5 Saídas */}
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                    <h3
-                      className="text-sm font-semibold text-slate-100"
-                      style={TITLE_SHADOW}
-                    >
-                      Top 5 Saídas do mês
-                    </h3>
-                    {selectedCategory !== "todas" && (
-                      <button
-                        className="text-xs text-emerald-300 hover:text-emerald-200"
-                        onClick={() => setSelectedCategory("todas")}
-                      >
-                        Filtrando por: {selectedCategory} (clique para limpar)
-                      </button>
-                    )}
-                    <button
-                      className="text-xs text-sky-300 underline underline-offset-4 hover:text-sky-200"
-                      onClick={() => setViewMode("saidas")}
-                    >
-                      Ver todas as Saídas
-                    </button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="border-b border-slate-800 text-slate-400">
-                        <tr>
-                          <th className="py-2 text-left">Data</th>
-                          <th className="py-2 text-left">Descrição</th>
-                          <th className="py-2 text-left">Categoria</th>
-                          <th className="py-2 text-right">Valor</th>
-                          <th className="py-2 text-right">% do mês</th>
-                          <th className="py-2 text-right">Situação</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800">
-                        {topExpenses.map((expense) => (
-                          <tr
-                            key={expense.id}
-                            className="cursor-pointer transition-colors hover:bg-slate-800/50"
-                            onClick={() => setSelectedExpenseId(expense.id)}
-                          >
-                            <td className="py-2">
-                              {formatDate(expense.date)}
-                            </td>
-                            <td className="py-2">{expense.description}</td>
-                            <td className="py-2">{expense.category}</td>
-                            <td className="py-2 text-right text-rose-300">
-                              - {formatCurrency(Math.abs(expense.amount))}
-                            </td>
-                            <td className="py-2 text-right">
-                              {totalSaidas
-                                ? `${(
-                                    (Math.abs(expense.amount) / totalSaidas) *
-                                    100
-                                  ).toFixed(1)}%`
-                                : "-"}
-                            </td>
-                            <td className="py-2 text-right">
-                              <span
-                                className={`rounded-full px-2 py-1 text-xs ${
-                                  expense.status === "paga"
-                                    ? "bg-emerald-500/10 text-emerald-300"
-                                    : "bg-amber-500/10 text-amber-300"
-                                }`}
-                              >
-                                {expense.status === "paga"
-                                  ? "Paga"
-                                  : "Pendente"}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                        {!topExpenses.length && (
+              <div className="flex-1 overflow-hidden relative rounded-lg border border-slate-800/50 bg-slate-950/30 transition-all">
+                {currentList.length > 0 ? (
+                    <div className="absolute inset-0 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
+                    <table className="w-full text-left">
+                        <thead className="sticky top-0 bg-slate-950 text-xs text-slate-500 font-semibold uppercase z-10">
                           <tr>
-                            <td
-                              colSpan={6}
-                              className="py-3 text-center text-slate-400"
-                            >
-                              Sem Saídas neste mês.
-                            </td>
+                            {/* CAIXA DE SELEÇÃO GERAL */}
+                            <th className="px-3 py-2 w-8"><button onClick={toggleSelectAll} className="flex items-center text-slate-400 hover:text-white">{selectedIds.length > 0 && selectedIds.length === currentList.length ? <CheckSquare size={16}/> : <Square size={16}/>}</button></th>
+                            <th className="px-3 py-2">Data</th>
+                            <th className="px-3 py-2">Descrição</th>
+                            <th className="px-3 py-2 text-right">Valor</th>
                           </tr>
-                        )}
-                      </tbody>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50">
+                            {currentList.map((expense) => (
+                            <tr key={expense.id} className={clsx("hover:bg-slate-900/80 transition-colors text-xs sm:text-sm cursor-pointer", selectedIds.includes(expense.id) && "bg-blue-900/20")}>
+                                {/* CAIXA DE SELEÇÃO INDIVIDUAL */}
+                                <td className="px-3 py-2.5 w-8" onClick={(e) => { e.stopPropagation(); toggleSelect(expense.id); }}>
+                                  <div className={clsx("cursor-pointer", selectedIds.includes(expense.id) ? "text-blue-400" : "text-slate-600")}>
+                                    {selectedIds.includes(expense.id) ? <CheckSquare size={16}/> : <Square size={16}/>}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-400 font-mono text-[10px] sm:text-xs" onClick={() => openItem(expense, 'expense')}>{formatDate(expense.date).substring(0, 5)}</td>
+                                <td className="px-3 py-2.5 text-slate-200" onClick={() => openItem(expense, 'expense')}><div className="font-medium truncate max-w-[120px]">{expense.description}</div><div className="text-[10px] text-slate-500 truncate">{expense.category}</div></td>
+                                <td className="px-3 py-2.5 text-right font-bold text-rose-400" onClick={() => openItem(expense, 'expense')}>{formatCurrency(Math.abs(expense.amount))}</td>
+                            </tr>
+                            ))}
+                        </tbody>
                     </table>
-                  </div>
-                </div>
+                    </div>
+                ) : (<div className="flex h-full flex-col items-center justify-center text-slate-500 gap-2"><Filter size={24} className="opacity-50"/><p className="text-xs">Nenhum gasto.</p>{selectedCategory && (<button onClick={() => setSelectedCategory(null)} className="text-xs text-sky-400 hover:underline">Ver todos</button>)}</div>)}
               </div>
             </div>
+          </div>
+          <PriceSummaryWidget />
+        </div>
+      )}
 
-            <div className="h-full">
-              <PriceResearchPanel />
+      {/* VISÃO DETALHADA (LISTAS COMPLETAS) */}
+      {(viewMode === "entradas" || viewMode === "saidas") && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 sm:p-6 animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-slate-100">{viewMode === "entradas" ? "Todas as Entradas" : "Todas as Saídas"}</h2>
+            <div className="flex gap-3">
+              {selectedIds.length > 0 && (
+                <button onClick={handleBulkDelete} className="text-xs flex items-center gap-1 bg-rose-600 text-white px-3 py-1 rounded font-bold hover:bg-rose-500 shadow-lg shadow-rose-900/20">
+                  <Trash2 size={14}/> Excluir Selecionados ({selectedIds.length})
+                </button>
+              )}
+              <button onClick={() => setViewMode("geral")} className="text-sm text-sky-400 hover:text-sky-300">Voltar</button>
             </div>
           </div>
-        </>
-      )}
-
-      {/* TABELA DE ENTRADAS */}
-      {viewMode === "entradas" && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2
-              className="text-lg font-semibold text-slate-100"
-              style={TITLE_SHADOW}
-            >
-              Entradas
-            </h2>
-            <span className="text-sm text-slate-400">
-              {incomesDoMes.length} itens
-            </span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="border-b border-slate-800 text-slate-400">
-                <tr>
-                  <th className="py-2 text-left">Data</th>
-                  <th className="py-2 text-left">Descrição</th>
-                  <th className="py-2 text-left">Fonte</th>
-                  <th className="py-2 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {incomesDoMes.map((income) => (
-                  <tr
-                    key={income.id}
-                    className="cursor-pointer transition-colors hover:bg-slate-800/60"
-                    onClick={() => setSelectedIncomeId(income.id)}
-                  >
-                    <td className="py-2 text-slate-200">
-                      {formatDate(income.date)}
-                    </td>
-                    <td className="py-2 text-slate-200">
-                      {income.description}
-                    </td>
-                    <td className="py-2 text-slate-200">
-                      {income.source}
-                    </td>
-                    <td className="py-2 text-right font-medium text-emerald-300">
-                      {formatCurrency(income.amount)}
-                    </td>
+          <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950/30">
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-900 text-slate-400 uppercase text-xs">
+                  <tr>
+                    <th className="px-4 py-3 w-10"><button onClick={toggleSelectAll} className="flex items-center text-slate-400 hover:text-white">{selectedIds.length > 0 && selectedIds.length === currentList.length ? <CheckSquare size={18}/> : <Square size={18}/>}</button></th>
+                    <th className="px-4 py-3 font-semibold">Data</th>
+                    <th className="px-4 py-3 font-semibold">Descrição</th>
+                    {viewMode === "saidas" && <th className="px-4 py-3 font-semibold">Categoria</th>}
+                    <th className="px-4 py-3 font-semibold text-right">Valor</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                   {currentList.map((item: any) => (
+                      <tr key={item.id} className={clsx("hover:bg-slate-800/50 transition-colors cursor-pointer", selectedIds.includes(item.id) && "bg-blue-900/10")}>
+                         <td className="px-4 py-3" onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}>
+                            <div className={clsx("cursor-pointer", selectedIds.includes(item.id) ? "text-blue-400" : "text-slate-600")}>
+                              {selectedIds.includes(item.id) ? <CheckSquare size={18}/> : <Square size={18}/>}
+                            </div>
+                         </td>
+                         <td className="px-4 py-3 text-slate-400 font-mono text-xs" onClick={() => openItem(item, viewMode === 'saidas' ? 'expense' : 'income')}>{formatDate(item.date)}</td>
+                         <td className="px-4 py-3 font-medium text-slate-200" onClick={() => openItem(item, viewMode === 'saidas' ? 'expense' : 'income')}>{item.description}{item.source && <span className="ml-2 text-[10px] text-slate-500 border border-slate-800 px-1 rounded">{item.source}</span>}</td>
+                         {viewMode === "saidas" && <td className="px-4 py-3 text-xs text-slate-400" onClick={() => openItem(item, 'expense')}>{item.category}</td>}
+                         <td className={clsx("px-4 py-3 text-right font-bold", viewMode === "entradas" ? "text-emerald-400" : "text-rose-400")} onClick={() => openItem(item, viewMode === 'saidas' ? 'expense' : 'income')}>{formatCurrency(Math.abs(item.amount))}</td>
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
           </div>
         </div>
       )}
 
-      {/* TABELA DE SAÍDAS */}
-      {viewMode === "saidas" && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2
-              className="text-lg font-semibold text-slate-100"
-              style={TITLE_SHADOW}
-            >
-              Todas as Saídas
-            </h2>
-            <span className="text-sm text-slate-400">
-              {despesasOrdenadas.length} itens
-            </span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="border-b border-slate-800 text-slate-400">
-                <tr>
-                  <th className="py-2 text-left">Data</th>
-                  <th className="py-2 text-left">Descrição</th>
-                  <th className="py-2 text-left">Categoria</th>
-                  <th className="py-2 text-right">Valor</th>
-                  <th className="py-2 text-right">Situação</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {despesasOrdenadas.map((expense) => (
-                  <tr
-                    key={expense.id}
-                    className="cursor-pointer transition-colors hover:bg-slate-800/60"
-                    onClick={() => setSelectedExpenseId(expense.id)}
-                  >
-                    <td className="py-2 text-slate-200">
-                      {formatDate(expense.date)}
-                    </td>
-                    <td className="py-2 text-slate-200">
-                      {expense.description}
-                    </td>
-                    <td className="py-2 text-slate-200">
-                      {expense.category}
-                    </td>
-                    <td className="py-2 text-right font-medium text-rose-300">
-                      - {formatCurrency(Math.abs(expense.amount))}
-                    </td>
-                    <td className="py-2 text-right">
-                      <span
-                        className={`rounded-full px-2 py-1 text-xs font-medium ${
-                          expense.status === "paga"
-                            ? "bg-emerald-500/10 text-emerald-300"
-                            : "bg-amber-500/10 text-amber-300"
-                        }`}
-                      >
-                        {expense.status === "paga" ? "Paga" : "Pendente"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* MODAIS */}
-      <ReceiptImportModal
-        isOpen={isReceiptModalOpen}
-        onClose={() => setReceiptModalOpen(false)}
-      />
-
-      {selectedExpense && (
-        <ExpenseDetailModal
-          expense={selectedExpense}
-          onClose={() => setSelectedExpenseId(null)}
-          onToggleStatus={(status) => {
-            updateExpenseStatus(selectedExpense.id, status);
-            setSelectedExpenseId(null);
-          }}
-          onConfirm={async () => {
-            if (!selectedExpense) return;
-            const confirmed = confirm("Confirma excluir esta saída?");
-            if (!confirmed) return;
-
-            const { error } = await supabase
-              .from("expenses")
-              .delete()
-              .eq("id", selectedExpense.id);
-
-            if (error) {
-              console.error("Erro ao deletar saída no Supabase:", error);
-              alert(error.message || "Erro ao deletar saída no Supabase.");
-              return;
-            }
-
-            await loadExpenses();
-            setSelectedExpenseId(null);
-          }}
-          onEdit={() => navigate(`/saidas/editar/${selectedExpense.id}`)}
-        />
-      )}
-
-      {selectedIncome && (
-        <IncomeDetailModal
-          income={selectedIncome}
-          onClose={() => setSelectedIncomeId(null)}
-          onConfirm={async () => {
-            if (!selectedIncome) return;
-
-            const confirmed = confirm("Confirma excluir esta entrada?");
-            if (!confirmed) return;
-
-            const { error } = await supabase
-              .from("incomes")
-              .delete()
-              .eq("id", selectedIncome.id);
-
-            if (error) {
-              console.error("Erro ao deletar entrada no Supabase:", error);
-              alert(error.message || "Erro ao deletar entrada no Supabase.");
-              return;
-            }
-
-            await loadIncomes();
-            setSelectedIncomeId(null);
-          }}
-          onEdit={() => navigate(`/entradas/editar/${selectedIncome.id}`)}
-        />
-      )}
+      <ReceiptImportModal isOpen={isReceiptModalOpen} onClose={() => setReceiptModalOpen(false)} />
+      <TransactionModal item={selectedItem} type={selectedType || 'expense'} onClose={() => setSelectedItem(null)} onDelete={handleDeleteItem} onEdit={handleEditItem} />
     </div>
   );
 }
+
+
+
+

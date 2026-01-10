@@ -1,7 +1,12 @@
+﻿// src/components/receipt/ReceiptImportModal.tsx
 import { useEffect, useMemo, useState } from "react";
 import { useCategories } from "../../contexts/CategoriesContext";
 import { useFinance } from "../../contexts/FinanceContext";
-import { readReceiptFromImage, readReceiptViaVeryfi } from "../../services/receiptOcr";
+import {
+  readReceiptFromImage,
+  readReceiptViaVeryfi,
+} from "../../services/receiptOcr";
+import { savePriceEntryDualWrite } from "../../services/priceResearchDb";
 import { type Receipt } from "../../types/finance";
 import { formatCurrency, formatDate } from "../../utils/formatters";
 
@@ -12,7 +17,10 @@ type ReceiptImportModalProps = {
 
 type Step = 1 | 2;
 
-export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportModalProps) {
+export default function ReceiptImportModal({
+  isOpen,
+  onClose,
+}: ReceiptImportModalProps) {
   const { categories } = useCategories();
   const { createExpensesFromReceipt } = useFinance();
 
@@ -21,10 +29,26 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [itemCategories, setItemCategories] = useState<Record<string, string | undefined>>({});
+  const [itemCategories, setItemCategories] = useState<
+    Record<string, string | undefined>
+  >({});
   const [statusLog, setStatusLog] = useState<string | null>(null);
-  const [defaultCategoryId, setDefaultCategoryId] = useState<string | undefined>(undefined);
+  const [defaultCategoryId, setDefaultCategoryId] = useState<
+    string | undefined
+  >(undefined);
 
+  // --- Pesquisa de preços (categorias / itens) ---
+  const [priceCategories, setPriceCategories] = useState<
+    Array<{ id: string; name: string; subcategories: { id: string; name: string }[] }>
+  >([]);
+  const [priceCatSelections, setPriceCatSelections] = useState<
+    Record<string, string>
+  >({});
+  const [priceSubSelections, setPriceSubSelections] = useState<
+    Record<string, string>
+  >({});
+
+  // --- Mapas auxiliares ---
   const categoryNameById = useMemo(() => {
     const map: Record<string, string> = {};
     categories.forEach((cat) => {
@@ -33,6 +57,33 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     return map;
   }, [categories]);
 
+  const categoryIdByName = useMemo(() => {
+    const map = new Map<string, string>();
+    categories.forEach((cat) => {
+      map.set(cat.name.toLowerCase(), cat.id);
+    });
+    return map;
+  }, [categories]);
+
+  const resolveSuggestedCategoryId = (
+    suggestedName?: string,
+    suggestedId?: string,
+  ) => {
+    if (suggestedId) return suggestedId;
+    if (!suggestedName) return undefined;
+    const id = categoryIdByName.get(suggestedName.toLowerCase());
+    return id;
+  };
+
+  const findCategoryIdByKeyword = (keyword: string) => {
+    const lower = keyword.toLowerCase();
+    const match = categories.find((cat) =>
+      cat.name.toLowerCase().includes(lower),
+    );
+    return match?.id;
+  };
+
+  // Totais
   const itemsTotal = useMemo(() => {
     if (!receipt) return 0;
     if (typeof receipt.itemsTotal === "number") return receipt.itemsTotal;
@@ -47,28 +98,19 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
   const warningMessage = receipt?.warnings?.[0];
   const warningList = receipt?.warnings ?? [];
 
-  const categoryIdByName = useMemo(() => {
-    const map = new Map<string, string>();
-    categories.forEach((cat) => {
-      map.set(cat.name.toLowerCase(), cat.id);
-    });
-    return map;
-  }, [categories]);
-
-  const resolveSuggestedCategoryId = (suggestedName?: string, suggestedId?: string) => {
-    if (suggestedId) return suggestedId;
-    if (!suggestedName) return undefined;
-    const id = categoryIdByName.get(suggestedName.toLowerCase());
-    return id;
-  };
-
-  const findCategoryIdByKeyword = (keyword: string) => {
-    const lower = keyword.toLowerCase();
-    const match = categories.find((cat) => cat.name.toLowerCase().includes(lower));
-    return match?.id;
-  };
-
+  // Carregar categorias de pesquisa de preços (do localStorage)
   useEffect(() => {
+    const savedPriceCats = localStorage.getItem(
+      "sirius-price-research-categories",
+    );
+    if (savedPriceCats) {
+      try {
+        setPriceCategories(JSON.parse(savedPriceCats));
+      } catch {
+        //
+      }
+    }
+
     if (!categories.length) return;
     const mercadoId = findCategoryIdByKeyword("mercado");
     if (!defaultCategoryId) {
@@ -76,10 +118,12 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     }
   }, [categories, defaultCategoryId]);
 
+  // Ajustar categoria padrão conforme sugestão do cupom
   useEffect(() => {
     if (!receipt || !categories.length) return;
     const suggestion = receipt.suggestedCategory?.toLowerCase();
     if (!suggestion) return;
+
     if (suggestion.includes("farm")) {
       const farmaciaId = findCategoryIdByKeyword("farm");
       if (farmaciaId) {
@@ -87,6 +131,7 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
         return;
       }
     }
+
     if (suggestion.includes("merc")) {
       const mercadoId = findCategoryIdByKeyword("merc");
       if (mercadoId) {
@@ -95,6 +140,7 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     }
   }, [receipt, categories]);
 
+  // Resetar modal ao fechar
   useEffect(() => {
     if (!isOpen) {
       setStep(1);
@@ -105,10 +151,14 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
       setItemCategories({});
       setIsLoading(false);
       setDefaultCategoryId(undefined);
+      setPriceCatSelections({});
+      setPriceSubSelections({});
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // --- Ações de leitura do cupom ---
 
   const handleReadReceipt = async () => {
     if (!selectedFile) {
@@ -153,7 +203,9 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     } catch (err) {
       console.error("Erro Veryfi", err);
       const message =
-        err instanceof Error ? err.message : "Erro desconhecido ao enviar para Veryfi.";
+        err instanceof Error
+          ? err.message
+          : "Erro desconhecido ao enviar para Veryfi.";
       setError(message);
       setStatusLog(null);
     } finally {
@@ -168,10 +220,34 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
       date: new Date().toISOString().slice(0, 10),
       total: 129.45,
       items: [
-        { id: crypto.randomUUID(), description: "Arroz 5kg", quantity: 1, unitPrice: 29.9, total: 29.9 },
-        { id: crypto.randomUUID(), description: "Leite integral 12x1L", quantity: 1, unitPrice: 52.8, total: 52.8 },
-        { id: crypto.randomUUID(), description: "Detergente neutro", quantity: 1, unitPrice: 7.5, total: 7.5 },
-        { id: crypto.randomUUID(), description: "Carne bovina", quantity: 1, unitPrice: 39.25, total: 39.25 },
+        {
+          id: crypto.randomUUID(),
+          description: "Arroz 5kg",
+          quantity: 1,
+          unitPrice: 29.9,
+          total: 29.9,
+        },
+        {
+          id: crypto.randomUUID(),
+          description: "Leite integral 12x1L",
+          quantity: 1,
+          unitPrice: 52.8,
+          total: 52.8,
+        },
+        {
+          id: crypto.randomUUID(),
+          description: "Detergente neutro",
+          quantity: 1,
+          unitPrice: 7.5,
+          total: 7.5,
+        },
+        {
+          id: crypto.randomUUID(),
+          description: "Carne bovina",
+          quantity: 1,
+          unitPrice: 39.25,
+          total: 39.25,
+        },
       ],
       rawText: "DEMO - Cupom de exemplo para testes",
     };
@@ -190,8 +266,12 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     setReceipt(null);
     setError(null);
     setItemCategories({});
+    setPriceCatSelections({});
+    setPriceSubSelections({});
     onClose();
   };
+
+  // --- Salvamento agregado (1 saída só) ---
 
   const handleSaveAggregate = () => {
     if (!receipt) return;
@@ -210,7 +290,7 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
     resetAndClose();
   };
 
-  const handleSavePerItem = () => {
+  const handleSavePerItem = async () => {
     if (!receipt) return;
     const enrichedReceipt: Receipt = {
       ...receipt,
@@ -219,28 +299,84 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
       rawTotalFromReceipt: receipt.rawTotalFromReceipt ?? cupomTotal,
       items: receipt.items.map((item) => ({
         ...item,
-        suggestedCategoryId: itemCategories[String(item.id)] ?? item.suggestedCategoryId,
+        suggestedCategoryId:
+          itemCategories[String(item.id)] ?? item.suggestedCategoryId,
       })),
     };
 
+    try {
+      // Grava pesquisa de preços para cada item com categoria de pesquisa definida
+      await Promise.all(
+        enrichedReceipt.items.map(async (item) => {
+          const itemKey = String(item.id);
+          const priceCatId = priceCatSelections[itemKey];
+          const priceSubId = priceSubSelections[itemKey];
+          if (!priceCatId || !priceSubId) return;
+
+          const priceCat = priceCategories.find((c) => c.id === priceCatId);
+          const priceSub = priceCat?.subcategories.find(
+            (s) => s.id === priceSubId,
+          );
+
+          const categoryId =
+            itemCategories[itemKey] ??
+            item.suggestedCategoryId ??
+            defaultCategoryId;
+          const categoryName = categoryId
+            ? categoryNameById[categoryId] ?? categoryId
+            : undefined;
+          const quantity =
+            item.quantity && item.quantity > 0 ? item.quantity : 1;
+          const unitPrice =
+            item.unitPrice ??
+            item.unit_price ??
+            (quantity ? item.total / quantity : item.total);
+
+          await savePriceEntryDualWrite({
+            categoryId: priceCatId,
+            categoryName: priceCat?.name ?? priceCatId,
+            subcategoryId: priceSubId,
+            subcategoryName: priceSub?.name ?? item.description,
+            price: unitPrice,
+            date: enrichedReceipt.date,
+            store: enrichedReceipt.storeName,
+            expenseCategoryId: categoryId,
+            expenseCategoryName: categoryName,
+          });
+        }),
+      );
+    } catch (err) {
+      console.error(
+        "Erro ao salvar pesquisa de preços dos itens do cupom",
+        err,
+      );
+    }
+
+    // AQUI É O PONTO IMPORTANTE:
+    // Mesmo gravando pesquisa item a item, vamos criar **UMA** saída agregada.
     createExpensesFromReceipt({
       receipt: enrichedReceipt,
-      mode: "perItem",
+      mode: "aggregate", // <--- trocado de "perItem" para "aggregate"
       defaultCategoryId,
       categoryNameById,
     });
     resetAndClose();
   };
 
+  // --- UI ---
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-4xl rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase text-emerald-400 tracking-wide">Importar cupom (beta)</p>
+            <p className="text-xs uppercase text-emerald-400 tracking-wide">
+              Importar cupom (beta)
+            </p>
             <h3 className="text-xl font-semibold">Digitalize seu cupom fiscal</h3>
             <p className="text-sm text-slate-400">
-              Faca upload de uma foto do cupom ou use o modo demonstracao para testar.
+              Faca upload de uma foto do cupom ou use o modo demonstracao para
+              testar.
             </p>
           </div>
           <button
@@ -255,9 +391,12 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
           {step === 1 && (
             <div className="grid gap-4 md:grid-cols-[1.2fr,0.8fr]">
               <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/50 p-6 text-center">
-                <p className="text-sm text-slate-300 font-medium">Selecione a imagem do cupom</p>
+                <p className="text-sm text-slate-300 font-medium">
+                  Selecione a imagem do cupom
+                </p>
                 <p className="text-xs text-slate-500 mt-1">
-                  Formatos aceitos: JPG, JPEG, PNG. Prefira fotos nitidas e sem cortes.
+                  Formatos aceitos: JPG, JPEG, PNG. Prefira fotos nitidas e sem
+                  cortes.
                 </p>
 
                 <div className="mt-4 flex flex-col items-center gap-3">
@@ -279,7 +418,10 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                   </label>
                   {selectedFile && (
                     <p className="text-xs text-slate-300">
-                      Arquivo escolhido: <span className="font-semibold">{selectedFile.name}</span>
+                      Arquivo escolhido:{" "}
+                      <span className="font-semibold">
+                        {selectedFile.name}
+                      </span>
                     </p>
                   )}
                 </div>
@@ -313,14 +455,19 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                     Lendo cupom, isso pode levar alguns segundos...
                   </p>
                 )}
-                {statusLog && <p className="text-xs text-slate-300">{statusLog}</p>}
+                {statusLog && (
+                  <p className="text-xs text-slate-300">{statusLog}</p>
+                )}
                 {error && <p className="text-xs text-rose-300">{error}</p>}
                 <div className="text-xs text-slate-500 space-y-1">
-                  <p>Tire uma foto legivel do cupom, com os numeros bem visiveis.</p>
+                  <p>
+                    Tire uma foto legivel do cupom, com os numeros bem visiveis.
+                  </p>
                   <p>Evite cortes e sombras fortes para melhor leitura.</p>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Dica: mantenha a foto plana, com boa iluminacao e o texto centralizado.
+                  Dica: mantenha a foto plana, com boa iluminacao e o texto
+                  centralizado.
                 </p>
               </div>
             </div>
@@ -331,19 +478,62 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-4">
                 <div>
                   <p className="text-xs uppercase text-slate-500">Loja</p>
-                  <p className="text-lg font-semibold text-slate-100">{receipt.storeName}</p>
-                  <p className="text-xs text-slate-500 mt-1">Data: {formatDate(receipt.date)}</p>
+                  <p className="text-lg font-semibold text-slate-100">
+                    {receipt.storeName}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Data: {formatDate(receipt.date)}
+                  </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs uppercase text-slate-500">Total do cupom</p>
-                  <p className="text-xl font-semibold text-emerald-300">{formatCurrency(cupomTotal)}</p>
+                  <p className="text-xs uppercase text-slate-500">
+                    Total do cupom
+                  </p>
+                  <p className="text-xl font-semibold text-emerald-300">
+                    {formatCurrency(cupomTotal)}
+                  </p>
                   <p className="text-xs text-slate-500">
-                    {receipt.items.length} itens | soma itens: {formatCurrency(itemsTotal)}
+                    {receipt.items.length} itens | soma itens:{" "}
+                    {formatCurrency(itemsTotal)}
                   </p>
                 </div>
               </div>
 
-              <div className="overflow-x-auto rounded-lg border border-slate-800">
+              {/* Categoria padrão */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-200">
+                <div className="text-xs text-slate-400">
+                  <div className="mb-1 font-semibold text-slate-300">
+                    Categoria padrão (aplicar nos itens)
+                  </div>
+                  <select
+                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
+                    value={defaultCategoryId ?? ""}
+                    onChange={(event) => {
+                      const next = event.target.value || undefined;
+                      setDefaultCategoryId(next);
+                      if (!receipt) return;
+                      if (!next) return;
+                      const all = receipt.items.reduce<
+                        Record<string, string>
+                      >((acc, item) => {
+                        acc[String(item.id)] = next;
+                        return acc;
+                      }, {});
+                      setItemCategories(all);
+                    }}
+                  >
+                    <option value="">Selecionar categoria</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* ITENS DO CUPOM */}
+              <div className="overflow-x-auto overflow-y-auto max-h-[50vh] rounded-lg border border-slate-800">
                 <table className="min-w-full text-sm">
                   <thead className="bg-slate-900 text-slate-400">
                     <tr>
@@ -351,22 +541,30 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                       <th className="px-3 py-2 text-right">Qtd</th>
                       <th className="px-3 py-2 text-right">Valor unitario</th>
                       <th className="px-3 py-2 text-right">Total</th>
-                      <th className="px-3 py-2 text-left">Categoria sugerida</th>
+                      <th className="px-3 py-2 text-left">Categoria</th>
+                      <th className="px-3 py-2 text-left">
+                        Pesquisa de preços
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                     {receipt.items.map((item) => {
                       const suggestedId = resolveSuggestedCategoryId(
                         item.suggestedCategoryName,
-                        item.suggestedCategoryId
+                        item.suggestedCategoryId,
                       );
                       const itemKey = String(item.id);
-                      const value = itemCategories[itemKey] ?? suggestedId ?? "";
-                      const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
+                      const value =
+                        itemCategories[itemKey] ?? suggestedId ?? "";
+                      const quantity =
+                        item.quantity && item.quantity > 0
+                          ? item.quantity
+                          : 1;
                       const unitPrice =
                         item.unitPrice ??
                         item.unit_price ??
                         (quantity ? item.total / quantity : item.total);
+
                       return (
                         <tr
                           key={item.id}
@@ -390,12 +588,17 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                           <td className="px-3 py-2 text-right text-rose-200">
                             {formatCurrency(item.total)}
                           </td>
+
+                          {/* Categoria da SAÍDA */}
                           <td className="px-3 py-2">
                             <select
                               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
                               value={value}
                               onChange={(event) =>
-                                handleCategoryChange(itemKey, event.target.value || undefined)
+                                handleCategoryChange(
+                                  itemKey,
+                                  event.target.value || undefined,
+                                )
                               }
                             >
                               <option value="">Escolher categoria</option>
@@ -406,6 +609,58 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                               ))}
                             </select>
                           </td>
+
+                          {/* Pesquisa de PREÇOS */}
+                          <td className="px-3 py-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <select
+                                className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                                value={priceCatSelections[itemKey] ?? ""}
+                                onChange={(event) => {
+                                  const next = event.target.value;
+                                  setPriceCatSelections((prev) => ({
+                                    ...prev,
+                                    [itemKey]: next,
+                                  }));
+                                  setPriceSubSelections((prev) => ({
+                                    ...prev,
+                                    [itemKey]: "",
+                                  }));
+                                }}
+                              >
+                                <option value="">Cat. pesquisa</option>
+                                {priceCategories.map((cat) => (
+                                  <option key={cat.id} value={cat.id}>
+                                    {cat.name}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <select
+                                className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                                value={priceSubSelections[itemKey] ?? ""}
+                                onChange={(event) => {
+                                  const next = event.target.value;
+                                  setPriceSubSelections((prev) => ({
+                                    ...prev,
+                                    [itemKey]: next,
+                                  }));
+                                }}
+                                disabled={!priceCatSelections[itemKey]}
+                              >
+                                <option value="">Item pesquisa</option>
+                                {priceCategories
+                                  .find(
+                                    (c) => c.id === priceCatSelections[itemKey],
+                                  )
+                                  ?.subcategories.map((sub) => (
+                                    <option key={sub.id} value={sub.id}>
+                                      {sub.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -413,15 +668,20 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                 </table>
                 {!receipt.items.length && (
                   <div className="p-4 text-sm text-amber-300">
-                    Nao encontramos itens automaticamente. Revise o texto do cupom.
+                    Nao encontramos itens automaticamente. Revise o texto do
+                    cupom.
                   </div>
                 )}
               </div>
 
+              {/* Resumo / validação */}
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-200">
                 <div>
                   <p>
-                    Total dos itens: <span className="font-semibold">{formatCurrency(itemsTotal)}</span>
+                    Total dos itens:{" "}
+                    <span className="font-semibold">
+                      {formatCurrency(itemsTotal)}
+                    </span>
                   </p>
                   {receipt.rawTotalFromReceipt !== undefined && (
                     <p>
@@ -432,9 +692,13 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                     </p>
                   )}
                   {receipt.rawTotalFromReceipt !== undefined &&
-                    Math.abs(itemsTotal - receipt.rawTotalFromReceipt) >= 0.01 && (
+                    Math.abs(itemsTotal - receipt.rawTotalFromReceipt) >=
+                      0.01 && (
                       <p className="text-amber-200">
-                        Diferença: {formatCurrency(itemsTotal - receipt.rawTotalFromReceipt)}
+                        Diferença:{" "}
+                        {formatCurrency(
+                          itemsTotal - receipt.rawTotalFromReceipt,
+                        )}
                       </p>
                     )}
                   <p className="text-xs text-slate-400">
@@ -452,23 +716,6 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                     </ul>
                   )}
                 </div>
-                <div className="text-right text-xs text-slate-400">
-                  <div className="mb-1 font-semibold text-slate-300">Categoria padrao</div>
-                  <select
-                    className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
-                    value={defaultCategoryId ?? ""}
-                    onChange={(event) =>
-                      setDefaultCategoryId(event.target.value || undefined)
-                    }
-                  >
-                    <option value="">Selecionar categoria</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
 
               <div className="flex flex-wrap justify-end gap-3">
@@ -478,17 +725,18 @@ export default function ReceiptImportModal({ isOpen, onClose }: ReceiptImportMod
                 >
                   Cancelar
                 </button>
-                <button
-                  className="rounded-md border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-500"
+                {/* Se quiser manter um botão de salvar agregado "puro" */}
+                {/* <button
+                  className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-emerald-500"
                   onClick={handleSaveAggregate}
                 >
-                  Salvar como saida unica
-                </button>
+                  Salvar (apenas agregado)
+                </button> */}
                 <button
-                  className="rounded-md border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 hover:border-emerald-500"
+                  className="rounded-md border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-emerald-500"
                   onClick={handleSavePerItem}
                 >
-                  Salvar item a item (experimental)
+                  Salvar
                 </button>
               </div>
             </div>

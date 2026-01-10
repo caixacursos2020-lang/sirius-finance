@@ -28,29 +28,70 @@ export interface Expense {
   dueDate?: string;
   recurrenceDay?: number;
   status: ExpenseStatus;
+  
+  // Campos extras e de combustível
+  observation?: string;
   fuelLiters?: number;
   fuelPricePerLiter?: number;
   fuelStation?: string;
   fuelType?: string;
+  
   createdAt: string; // ISO datetime
   receiptId?: string;
+  
   // Campos para cupons
   isReceipt?: boolean;
   receiptStore?: string;
   receiptItems?: ReceiptItem[];
 }
 
-// Linha da tabela public.expenses no Supabase
-export interface SupabaseExpenseRow {
+// Linha da tabela public.expenses no Supabase (Mapeamento do Banco de Dados)
+export type SupabaseExpenseRow = {
   id: string;
-  user_id: string | null;
-  date: string;
-  description: string;
-  amount: number;
+  user_id: string;
+  date: string | null;
+  description: string | null;
+  amount: number | null;
   category: string | null;
-  payment_me: string | null;
-  created_at: string;
-}
+  payment_method: string | null;
+  is_fixed: boolean | null;
+  is_recurring: boolean | null;
+  recurrence_day: number | null;
+  status: string | null;
+  observation: string | null;
+  fuel_liters: number | null;
+  fuel_price_per_liter: number | null;
+  fuel_station: string | null;
+  fuel_type: string | null;
+  receipt_store: string | null;
+  /** NOVOS CAMPOS PARA CUPOM **/
+  receipt_id: string | null;
+  is_receipt: boolean | null;
+  created_at: string | null;
+};
+
+export type SupabaseReceiptRow = {
+  id: string;
+  user_id: string;
+  store_name: string | null;
+  date: string | null;
+  total: number | null;
+  items_total: number | null;
+  raw_total_from_receipt: number | null;
+  raw_text: string | null;
+  created_at: string | null;
+};
+
+export type SupabaseReceiptItemRow = {
+  id: string;
+  receipt_id: string;
+  description: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  total: number | null;
+  suggested_category_id: string | null;
+  suggested_category_name: string | null;
+};
 
 export interface Income {
   id: string;
@@ -140,7 +181,6 @@ export interface ReceiptSummary {
 // Pesquisa de preços de insumos (supply tracking)
 // ---------------------------------------------------------------------------
 
-// Identificador do tipo geral de insumo
 export type SupplyCategory =
   | "carne_bovina"
   | "carne_frango"
@@ -149,7 +189,6 @@ export type SupplyCategory =
   | "queijo"
   | "gasolina";
 
-// Identificador dos cortes / variações dentro de cada categoria
 export type SupplyVariantId =
   | "miolo_paleta"
   | "contrafile"
@@ -170,18 +209,17 @@ export type SupplyVariantId =
 export interface SupplyVariant {
   id: SupplyVariantId;
   category: SupplyCategory;
-  name: string; // Ex.: "Miolo da paleta"
-  unit: string; // Ex.: "kg", "bandeja 20 un", "litro"
+  name: string;
+  unit: string;
 }
 
-// Registro de um preço de insumo em uma data
 export interface SupplyPriceSample {
   id: string;
   variantId: SupplyVariantId;
   category: SupplyCategory;
   date: string; // ISO
-  price: number; // preço por unidade (kg, litro, etc.)
-  place?: string; // mercado, açougue, posto opcional
+  price: number; // preço por unidade
+  place?: string;
   createdAt: string;
 }
 
@@ -244,9 +282,6 @@ export interface TrackedVariantMeta {
   familyLabel: string;
   variantLabel: string;
   unit: TrackedUnit;
-  /**
-   * Para ovos, por exemplo, 20 ou 30 unidades por cartela.
-   */
   referenceQuantity?: number;
 }
 
@@ -258,7 +293,7 @@ export interface TrackedPriceSample {
   variantLabel: string;
   unit: TrackedUnit;
   referenceQuantity?: number;
-  value: number; // preço por kg, L ou cartela
+  value: number; 
   date: string; // YYYY-MM-DD
   source?: string;
   createdAt: string;
@@ -272,9 +307,6 @@ export interface TrackedPriceSummary {
   variationPercent: number | null;
 }
 
-/**
- * Metadados fixos de todas as variantes acompanhadas.
- */
 export const TRACKED_VARIANTS_META: Record<TrackedVariantKey, TrackedVariantMeta> = {
   carne_bovina_miolo_paleta: {
     familyKey: "carne_bovina",
