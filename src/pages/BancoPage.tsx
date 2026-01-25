@@ -159,31 +159,35 @@ export default function BancoPage() {
     };
   });
 
-  const handleSaveAccount = () => {
+  const handleSaveAccount = async () => {
     if (!accountForm.name?.trim()) {
       setMessage("Informe um nome para o banco.");
       return;
     }
     if (editingBankId) {
-      updateBankAccount(editingBankId, {
+      await updateBankAccount(editingBankId, {
         name: accountForm.name,
         institution: accountForm.institution,
         color: accountForm.color,
       });
       setMessage("Banco atualizado.");
     } else {
-      addBankAccount({
+      const result = await addBankAccount({
         name: accountForm.name.trim(),
         institution: accountForm.institution?.trim(),
         color: accountForm.color,
       });
+      if ("error" in result) {
+        setMessage("Erro ao adicionar banco: " + result.error);
+        return;
+      }
       setMessage("Banco adicionado.");
     }
     setAccountForm({ name: "", institution: "", color: "#22c55e" });
     setEditingBankId(null);
   };
 
-  const handleDeleteAccount = (id: string) => {
+  const handleDeleteAccount = async (id: string) => {
     const hasBalances = bankBalances.some((b) => b.bankId === id);
     if (hasBalances) {
       const bank = bankAccounts.find((b) => b.id === id);
@@ -192,7 +196,7 @@ export default function BancoPage() {
       }
       return;
     }
-    const result = deleteBankAccount(id);
+    const result = await deleteBankAccount(id);
     if (!result.success) {
       setMessage(result.reason ?? "Não foi possível excluir o banco.");
       return;
@@ -268,9 +272,9 @@ export default function BancoPage() {
     setDeleteMonthModal(null);
   };
 
-  const confirmDeleteBankAndBalances = () => {
+  const confirmDeleteBankAndBalances = async () => {
     if (!deleteBankModal) return;
-    deleteBankAndBalances(deleteBankModal.id);
+    await deleteBankAndBalances(deleteBankModal.id);
     setMessage("Banco e saldos excluídos.");
     setDeleteBankModal(null);
   };

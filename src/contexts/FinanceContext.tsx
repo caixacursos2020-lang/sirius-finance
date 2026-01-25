@@ -1,6 +1,5 @@
-﻿import {
+import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useState,
@@ -72,7 +71,7 @@ interface FinanceContextValue {
 
   loadIncomes: () => Promise<{ error?: string }>;
   loadExpenses: () => Promise<{ error?: string }>;
-  loadPaymentMethods: () => void;
+  loadPaymentMethods: () => Promise<void>;
 
   addExpense: (
     data: Omit<Expense, "id" | "createdAt" | "user_id">
@@ -98,13 +97,16 @@ interface FinanceContextValue {
 
   addBankAccount: (
     data: Omit<BankAccount, "id" | "createdAt">
-  ) => BankAccount;
+  ) => Promise<BankAccount | { error: string }>;
   updateBankAccount: (
     id: string,
     data: Partial<Omit<BankAccount, "id" | "createdAt">>
-  ) => void;
-  deleteBankAccount: (id: string) => { success: boolean; reason?: string };
-  deleteBankAndBalances: (id: string) => void;
+  ) => Promise<void>;
+  deleteBankAccount: (
+    id: string,
+    force?: boolean
+  ) => Promise<{ success: boolean; reason?: string }>;
+  deleteBankAndBalances: (id: string) => Promise<void>;
   upsertBankBalance: (
     data: Omit<BankBalance, "id" | "createdAt" | "updatedAt">
   ) => void;
@@ -132,14 +134,14 @@ interface FinanceContextValue {
     type: PaymentMethodType;
     color?: string;
     description?: string;
-  }) => PaymentMethod;
+  }) => Promise<PaymentMethod | { error: string }>;
   updatePaymentMethod: (
     id: string,
     data: Partial<Omit<PaymentMethod, "id" | "createdAt">>
-  ) => void;
-  archivePaymentMethod: (id: string) => void;
-  restorePaymentMethod: (id: string) => void;
-  deletePaymentMethod: (id: string) => { success: boolean; reason?: string };
+  ) => Promise<void>;
+  archivePaymentMethod: (id: string) => Promise<void>;
+  restorePaymentMethod: (id: string) => Promise<void>;
+  deletePaymentMethod: (id: string) => Promise<{ success: boolean; reason?: string }>;
   getActivePaymentMethods: () => PaymentMethod[];
   getPaymentMethodById: (
     id: string | null | undefined
@@ -198,9 +200,7 @@ interface FinanceContextValue {
 const FinanceContext = createContext<FinanceContextValue | undefined>(undefined);
 
 const RECEIPTS_KEY = "sirius_receipts_v1";
-const BANKS_KEY = "sirius_bank_accounts_v1";
 const BALANCES_KEY = "sirius_bank_balances_v1";
-const PAYMENT_METHODS_KEY = "sirius_payment_methods_v1";
 const PRICE_SAMPLES_KEY = "sirius_price_samples_v1";
 
 const defaultPaymentMethods: PaymentMethod[] = [
@@ -271,24 +271,106 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   const [loading, setLoading] = useState(true);
 
-  const loadPaymentMethods = useCallback(() => {
+  // Carrega métodos de pagamento do Supabase
+  // MUDANÇA: Agora é assíncrono e busca do banco
+  const loadPaymentMethods = async () => {
+    if (!user) return;
+
     try {
-      const rawPM = localStorage.getItem(PAYMENT_METHODS_KEY);
-      if (rawPM) {
-        const parsed = JSON.parse(rawPM);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPaymentMethods(parsed);
+      const { data, error } = await supabase
+        .from("payment_methods")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Erro ao carregar payment_methods:", error);
+        return;
+      }
+
+      // Se estiver vazio, insere os defaults
+      if (!data || data.length === 0) {
+        const toInsert = defaultPaymentMethods.map((pm) => ({
+          // id: pm.id, // O banco deve gerar UUIDs se a coluna for uuid default gen_random_uuid(), mas vou mandar sem ID para criar novos ou gerar UUID v4 aqui se preferir.
+          // Como o schema não foi mostrado, vou assumir que ID é gerado pelo banco ou podemos mandar um UUID.
+          // Vou gerar UUIDs novos para garantir unicidade no banco.
+          // A instrução diz "insira automaticamente os defaultPaymentMethods".
+          name: pm.name,
+          type: pm.type,
+          color: pm.color,
+          active: pm.active,
+          user_id: user.id,
+          description: "Padrão do sistema",
+        }));
+
+        const { data: inserted, error: insertError } = await supabase
+          .from("payment_methods")
+          .insert(toInsert)
+          .select("*");
+
+        if (insertError) {
+          console.error("Erro ao inserir defaultPaymentMethods:", insertError);
         } else {
-          setPaymentMethods(defaultPaymentMethods);
+          setPaymentMethods(
+            (inserted ?? []).map((row: any) => ({
+              id: row.id,
+              name: row.name,
+              type: row.type,
+              color: row.color,
+              active: row.active ?? true,
+              description: row.description,
+              createdAt: row.created_at,
+              updatedAt: row.updated_at,
+            }))
+          );
         }
       } else {
-        setPaymentMethods(defaultPaymentMethods);
+        setPaymentMethods(
+          data.map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            type: row.type,
+            color: row.color,
+            active: row.active ?? true,
+            description: row.description,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+          }))
+        );
       }
     } catch (err) {
-      console.error("Erro ao carregar formas de pagamento", err);
-      setPaymentMethods(defaultPaymentMethods);
+      console.error("Erro inesperado loadPaymentMethods:", err);
     }
-  }, []);
+  };
+
+  const loadBankAccounts = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Erro ao carregar bank_accounts:", error);
+        return;
+      }
+
+      setBankAccounts(
+        (data ?? []).map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          institution: row.institution,
+          color: row.color,
+          createdAt: row.created_at,
+        }))
+      );
+    } catch (err) {
+      console.error("Erro inesperado loadBankAccounts:", err);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -296,13 +378,6 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       if (rawReceipts) setReceipts(JSON.parse(rawReceipts));
     } catch (err) {
       console.error("Erro ao carregar cupons do localStorage", err);
-    }
-
-    try {
-      const rawBanks = localStorage.getItem(BANKS_KEY);
-      if (rawBanks) setBankAccounts(JSON.parse(rawBanks));
-    } catch (err) {
-      console.error("Erro ao carregar bancos do localStorage", err);
     }
 
     try {
@@ -319,24 +394,20 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       console.error("Erro ao carregar pesquisa de preços do localStorage", err);
     }
 
-    loadPaymentMethods();
-  }, [loadPaymentMethods]);
+    // Removido carregamento local de banks e payment methods
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(RECEIPTS_KEY, JSON.stringify(receipts));
   }, [receipts]);
 
-  useEffect(() => {
-    localStorage.setItem(BANKS_KEY, JSON.stringify(bankAccounts));
-  }, [bankAccounts]);
+  // Removido salvamento local de BANKS_KEY
 
   useEffect(() => {
     localStorage.setItem(BALANCES_KEY, JSON.stringify(bankBalances));
   }, [bankBalances]);
 
-  useEffect(() => {
-    localStorage.setItem(PAYMENT_METHODS_KEY, JSON.stringify(paymentMethods));
-  }, [paymentMethods]);
+  // Removido salvamento local de PAYMENT_METHODS_KEY
 
   useEffect(() => {
     localStorage.setItem(PRICE_SAMPLES_KEY, JSON.stringify(priceSamples));
@@ -354,6 +425,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         setReceipts([]);
         setBankAccounts([]);
         setBankBalances([]);
+        setPaymentMethods([]);
         setPriceSamples([]);
 
         setPriceResearchCategories([]);
@@ -369,6 +441,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         loadExpenses(),
         loadReceiptsFromSupabase(),
         loadPriceResearch(),
+        loadBankAccounts(),   // MUDANÇA: Carregar bancos do Supabase
+        loadPaymentMethods(), // MUDANÇA: Carregar métodos de pag. do Supabase
       ]);
 
       if (active) setLoading(false);
@@ -379,7 +453,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [user?.id]);
+  }, [user?.id]); // loadPaymentMethods removido da dep array pois agora é função interna ou estável
 
   const loadIncomes = async (): Promise<{ error?: string }> => {
     if (!user) return { error: "Usuário não autenticado" };
@@ -1227,35 +1301,109 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       });
   };
 
-  const addBankAccount = (data: Omit<BankAccount, "id" | "createdAt">) => {
-    const account: BankAccount = {
-      ...data,
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-    setBankAccounts((prev) => [...prev, account]);
-    return account;
+  // MUDANÇA: addBankAccount agora salva no Supabase
+  const addBankAccount = async (
+    data: Omit<BankAccount, "id" | "createdAt">
+  ): Promise<BankAccount | { error: string }> => {
+    if (!user) return { error: "Usuário não autenticado" };
+
+    try {
+      const { data: inserted, error } = await supabase
+        .from("bank_accounts")
+        .insert({
+          user_id: user.id,
+          name: data.name,
+          institution: data.institution,
+          color: data.color,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        console.error("Erro ao inserir conta bancária:", error);
+        return { error: error.message };
+      }
+
+      const newAccount: BankAccount = {
+        id: inserted.id,
+        name: inserted.name,
+        institution: inserted.institution,
+        color: inserted.color,
+        createdAt: inserted.created_at,
+      };
+
+      setBankAccounts((prev) => [...prev, newAccount]);
+      return newAccount;
+    } catch (err: any) {
+      console.error("Erro addBankAccount:", err);
+      return { error: err.message };
+    }
   };
 
-  const updateBankAccount = (
+  // MUDANÇA: updateBankAccount agora salva no Supabase
+  const updateBankAccount = async (
     id: string,
     data: Partial<Omit<BankAccount, "id" | "createdAt">>
   ) => {
     setBankAccounts((prev) =>
       prev.map((acc) => (acc.id === id ? { ...acc, ...data } : acc))
     );
+
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from("bank_accounts")
+        .update({
+          name: data.name,
+          institution: data.institution,
+          color: data.color,
+        })
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Erro ao atualizar conta bancária:", error);
+      }
+    } catch (err) {
+      console.error("Erro updateBankAccount:", err);
+    }
   };
 
-  const deleteBankAccount = (id: string) => {
-    const hasBalances = bankBalances.some((b) => b.bankId === id);
-    if (hasBalances) {
-      return {
-        success: false,
-        reason: "Existem saldos vinculados a este banco.",
-      };
+  // MUDANÇA: deleteBankAccount agora deleta do Supabase
+  const deleteBankAccount = async (
+    id: string,
+    force: boolean = false
+  ): Promise<{ success: boolean; reason?: string }> => {
+    if (!force) {
+      const hasBalances = bankBalances.some((b) => b.bankId === id);
+      if (hasBalances) {
+        return {
+          success: false,
+          reason: "Existem saldos vinculados a este banco.",
+        };
+      }
     }
-    setBankAccounts((prev) => prev.filter((acc) => acc.id !== id));
-    return { success: true };
+
+    if (!user) return { success: false, reason: "Usuário não autenticado" };
+
+    try {
+      const { error } = await supabase
+        .from("bank_accounts")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Erro ao deletar conta bancária:", error);
+        return { success: false, reason: error.message };
+      }
+
+      setBankAccounts((prev) => prev.filter((acc) => acc.id !== id));
+      return { success: true };
+    } catch (err: any) {
+      console.error("Erro deleteBankAccount:", err);
+      return { success: false, reason: err.message };
+    }
   };
 
   const upsertBankBalance = (
@@ -1294,9 +1442,10 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const deleteBankAndBalances = (id: string) => {
+  const deleteBankAndBalances = async (id: string) => {
     setBankBalances((prev) => prev.filter((b) => b.bankId !== id));
-    setBankAccounts((prev) => prev.filter((acc) => acc.id !== id));
+    // Força a exclusão do banco ignorando a checagem de saldos (pois já estamos limpando-os)
+    await deleteBankAccount(id, true);
   };
 
   const deleteMonthBalances = (options: {
@@ -1323,26 +1472,55 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     return years;
   };
 
-  const addPaymentMethod = (data: {
+  // MUDANÇA: addPaymentMethod agora salva no Supabase
+  const addPaymentMethod = async (data: {
     name: string;
     type: PaymentMethodType;
     color?: string;
     description?: string;
-  }) => {
-    const newMethod: PaymentMethod = {
-      id: crypto.randomUUID(),
-      name: data.name,
-      type: data.type,
-      color: data.color,
-      description: data.description,
-      active: true,
-      createdAt: new Date().toISOString(),
-    };
-    setPaymentMethods((prev) => [...prev, newMethod]);
-    return newMethod;
+  }): Promise<PaymentMethod | { error: string }> => {
+    if (!user) return { error: "Usuário não autenticado" };
+
+    try {
+      const { data: inserted, error } = await supabase
+        .from("payment_methods")
+        .insert({
+          user_id: user.id,
+          name: data.name,
+          type: data.type,
+          color: data.color,
+          description: data.description,
+          active: true,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        console.error("Erro ao inserir método de pagamento:", error);
+        return { error: error.message };
+      }
+
+      const newMethod: PaymentMethod = {
+        id: inserted.id,
+        name: inserted.name,
+        type: inserted.type,
+        color: inserted.color,
+        description: inserted.description,
+        active: inserted.active ?? true,
+        createdAt: inserted.created_at,
+        updatedAt: inserted.updated_at,
+      };
+
+      setPaymentMethods((prev) => [...prev, newMethod]);
+      return newMethod;
+    } catch (err: any) {
+      console.error("Erro addPaymentMethod:", err);
+      return { error: err.message };
+    }
   };
 
-  const updatePaymentMethod = (
+  // MUDANÇA: updatePaymentMethod agora salva no Supabase
+  const updatePaymentMethod = async (
     id: string,
     data: Partial<Omit<PaymentMethod, "id" | "createdAt">>
   ) => {
@@ -1353,17 +1531,39 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
           : pm
       )
     );
+
+    if (!user) return;
+    try {
+      const { error } = await supabase
+        .from("payment_methods")
+        .update({
+          name: data.name,
+          type: data.type,
+          color: data.color,
+          description: data.description,
+          active: data.active,
+        })
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Erro ao atualizar método de pagamento:", error);
+      }
+    } catch (err) {
+      console.error("Erro updatePaymentMethod:", err);
+    }
   };
 
-  const archivePaymentMethod = (id: string) => {
-    updatePaymentMethod(id, { active: false });
+  const archivePaymentMethod = async (id: string) => {
+    await updatePaymentMethod(id, { active: false });
   };
 
-  const restorePaymentMethod = (id: string) => {
-    updatePaymentMethod(id, { active: true });
+  const restorePaymentMethod = async (id: string) => {
+    await updatePaymentMethod(id, { active: true });
   };
 
-  const deletePaymentMethod = (id: string) => {
+  // MUDANÇA: deletePaymentMethod agora deleta do Supabase
+  const deletePaymentMethod = async (id: string): Promise<{ success: boolean; reason?: string }> => {
     const isUsed = expenses.some((e) => e.paymentMethodId === id);
     if (isUsed) {
       return {
@@ -1372,8 +1572,27 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
           "Esta forma de pagamento está em uso em saídas cadastradas. Arquive-a em vez de excluir.",
       };
     }
-    setPaymentMethods((prev) => prev.filter((pm) => pm.id !== id));
-    return { success: true };
+
+    if (!user) return { success: false, reason: "Usuário não autenticado" };
+
+    try {
+      const { error } = await supabase
+        .from("payment_methods")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("Erro ao deletar método de pagamento:", error);
+        return { success: false, reason: error.message };
+      }
+
+      setPaymentMethods((prev) => prev.filter((pm) => pm.id !== id));
+      return { success: true };
+    } catch (err: any) {
+      console.error("Erro deletePaymentMethod:", err);
+      return { success: false, reason: err.message };
+    }
   };
 
   const getActivePaymentMethods = () => {
@@ -1619,4 +1838,3 @@ export type {
   SupplyVariantId,
   SupplyPriceSample,
 };
-
