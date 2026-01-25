@@ -1,5 +1,6 @@
 ﻿// src/pages/AddExpensePage.tsx (ou caminho equivalente)
-import { useState, useEffect, useMemo, FormEvent } from "react";
+import { useState, useEffect, useMemo } from "react";
+import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Tag,
@@ -23,6 +24,27 @@ const TITLE_SHADOW = {
   textShadow:
     "0 3px 10px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,0.75), 0 0 18px rgba(0,0,0,0.6)",
 };
+
+// Converte número/strings pt-BR/EN em número (ex.: "R$ 1.234,56" -> 1234.56)
+function parsePtNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return 0;
+  let cleaned = value.trim();
+  if (!cleaned) return 0;
+  cleaned = cleaned
+    .replace(/R\$\s?/gi, "")
+    .replace(/\s+/g, "")
+    .replace(/[^0-9,.\-+]/g, "");
+  const hasComma = cleaned.includes(",");
+  const hasDot = cleaned.includes(".");
+  if (hasComma && hasDot) {
+    cleaned = cleaned.replace(/\./g, "").replace(/,/g, ".");
+  } else if (hasComma) {
+    cleaned = cleaned.replace(/,/g, ".");
+  }
+  const n = Number.parseFloat(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
 
 type PriceCategory = {
   id: string;
@@ -57,6 +79,8 @@ export default function AddExpensePage() {
   const [fuelPricePerLiter, setFuelPricePerLiter] = useState<string>("");
   const [fuelStation, setFuelStation] = useState<string>("");
   const [fuelType, setFuelType] = useState<string>("");
+
+  const [litersTouched, setLitersTouched] = useState<boolean>(false);
 
   const [priceCategories, setPriceCategories] = useState<PriceCategory[]>([]);
   const [establishments, setEstablishments] = useState<string[]>([]);
@@ -137,13 +161,29 @@ export default function AddExpensePage() {
 
   const isFuelCategory =
     selectedCategory?.name.toLowerCase() === "gasolina" ||
-    selectedCategory?.name.toLowerCase() === "combustível";
+    selectedCategory?.name.toLowerCase() === "combustível" ||
+    selectedCategory?.name.toLowerCase() === "combustivel";
 
   function parseNumber(input: string): number {
-    if (!input) return 0;
-    const normalized = input.replace(/\./g, "").replace(",", ".");
-    return Number(normalized);
+    return parsePtNumber(input);
   }
+
+  // Auto cálculo de litros (total / preço por litro) enquanto o usuário não editou manualmente
+  useEffect(() => {
+    if (!isFuelCategory) {
+      setLitersTouched(false);
+      return;
+    }
+    if (litersTouched) return;
+    const total = Math.abs(parsePtNumber(amountInput));
+    const ppl = Math.abs(parsePtNumber(fuelPricePerLiter));
+    if (total > 0 && ppl > 0) {
+      const rounded = Math.round((total / ppl) * 100) / 100;
+      setFuelLiters(String(rounded));
+    }
+  }, [amountInput, fuelPricePerLiter, isFuelCategory, litersTouched]);
+
+
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -461,12 +501,12 @@ export default function AddExpensePage() {
             <div className="grid gap-4 md:grid-cols-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300">
-                  Litros
+                  Posto
                 </label>
                 <input
                   type="text"
-                  value={fuelLiters}
-                  onChange={(e) => setFuelLiters(e.target.value)}
+                  value={fuelStation}
+                  onChange={(e) => setFuelStation(e.target.value)}
                   className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
                 />
               </div>
@@ -499,12 +539,16 @@ export default function AddExpensePage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-300">
-                  Posto
+                  Litros
                 </label>
                 <input
                   type="text"
-                  value={fuelStation}
-                  onChange={(e) => setFuelStation(e.target.value)}
+                  value={fuelLiters}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFuelLiters(val);
+                    setLitersTouched(val.trim() !== "");
+                  }}
                   className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-100"
                 />
               </div>
@@ -512,7 +556,7 @@ export default function AddExpensePage() {
           </div>
         )}
 
-        {/* PESQUISA DE PREÇOS - igual layout original */}
+        {/* PESQUISA DE PREÇOS - igual antes, mas agora com dual-write */}
         <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 transition-all">
           <div className="flex items-center gap-3 mb-3">
             <button

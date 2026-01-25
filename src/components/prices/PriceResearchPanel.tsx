@@ -1,4 +1,3 @@
-// src/components/prices/PriceResearchPanel.tsx
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ResponsiveContainer,
@@ -41,6 +40,7 @@ type PriceEntry = {
   price: number;
   date: string; // ISO yyyy-MM-dd
   store?: string;
+  itemName?: string; // Novo campo para guardar nome/produto/marca
 };
 
 // Storage keys
@@ -157,14 +157,41 @@ function loadEntries(): PriceEntry[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Normaliza estrutura legada (cutId -> subcategoryId)
+    // Normaliza estrutura legada (cutId -> subcategoryId, etc.)
     return parsed.map((e: any, idx: number) => ({
       id: e.id ?? `entry-${idx}`,
-      categoryId: e.categoryId ?? e.categoriaId ?? "",
-      subcategoryId: e.subcategoryId ?? e.cutId ?? e.corteId ?? "",
-      price: Number(e.price ?? e.valor ?? 0),
+      categoryId:
+        e.categoryId ??
+        e.categoriaId ??
+        e.category ??
+        e.categoryName ??
+        e.nomeCategoria ??
+        "",
+      subcategoryId:
+        e.subcategoryId ??
+        e.subCategoryId ??
+        e.cutId ??
+        e.corteId ??
+        e.subcategory ??
+        e.subcategoria ??
+        e.subcategoryName ??
+        e.priceItemName ??
+        e.itemDescription ??
+        e.description ??
+        "",
+      price: Number(e.price ?? e.valor ?? e.preco ?? 0),
       date: e.date ?? e.data ?? new Date().toISOString().slice(0, 10),
       store: e.store ?? e.mercado ?? e.posto ?? undefined,
+      // Novo: tenta recuperar o nome/produto/marca se veio do cupom
+      itemName:
+        e.itemName ??
+        e.itemDescription ??
+        e.priceItemName ??
+        e.subcategoryName ??
+        e.description ??
+        e.subcategoria ??
+        e.subcategory ??
+        undefined,
     }));
   } catch {
     return [];
@@ -338,6 +365,20 @@ export default function PriceResearchPanel() {
     saveEstablishments(establishments);
   }, [establishments]);
 
+  // 🔄 SINCRONIZAÇÃO AUTOMÁTICA COM LOCALSTORAGE
+  useEffect(() => {
+    if (!HAS_WINDOW) return;
+    const interval = window.setInterval(() => {
+      setEntries((prev) => {
+        const stored = loadEntries();
+        // evita re-render desnecessário
+        if (JSON.stringify(prev) === JSON.stringify(stored)) return prev;
+        return stored;
+      });
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const selectedCategory = useMemo(
     () => categories.find((c) => c.id === selectedCategoryId) ?? null,
     [categories, selectedCategoryId],
@@ -359,16 +400,30 @@ export default function PriceResearchPanel() {
   }, [entries, selectedMonths]);
 
   const filteredEntries = useMemo(() => {
-    if (selectedCategoryId && selectedSubcategoryIds.length) {
-      return monthFilteredEntries.filter(
-        (e) => e.categoryId === selectedCategoryId && selectedSubcategoryIds.includes(e.subcategoryId),
-      );
+    // Quando tiver categoria e subcategorias selecionadas,
+    // aceita tanto ID quanto NOME da subcategoria (pra casar cupom + manual)
+    if (selectedCategoryId && selectedSubcategoryIds.length && selectedCategory) {
+      return monthFilteredEntries.filter((e) => {
+        if (e.categoryId !== selectedCategoryId) return false;
+
+        return selectedSubcategoryIds.some((subId) => {
+          const sub = selectedCategory.subcategories.find((s) => s.id === subId);
+          if (!sub) {
+            // fallback: compara direto com o valor bruto
+            return e.subcategoryId === subId;
+          }
+          // aceita "id" OU "nome"
+          return e.subcategoryId === subId || e.subcategoryId === sub.name;
+        });
+      });
     }
+
     if (selectedCategoryId && !selectedSubcategoryIds.length) {
       return monthFilteredEntries.filter((e) => e.categoryId === selectedCategoryId);
     }
+
     return monthFilteredEntries;
-  }, [monthFilteredEntries, selectedCategoryId, selectedSubcategoryIds]);
+  }, [monthFilteredEntries, selectedCategoryId, selectedSubcategoryIds, selectedCategory]);
 
   const lastEntry = filteredEntries[0];
   const previousEntry = filteredEntries[1];
@@ -409,8 +464,14 @@ export default function PriceResearchPanel() {
         : [];
 
     grouped.forEach((subId) => {
+      const sub = selectedCategory?.subcategories.find((s) => s.id === subId);
+
       const asc = filteredEntries
-        .filter((e) => e.subcategoryId === subId)
+        .filter((e) => {
+          if (selectedCategory && e.categoryId !== selectedCategory.id) return false;
+          if (!sub) return e.subcategoryId === subId;
+          return e.subcategoryId === subId || e.subcategoryId === sub.name;
+        })
         .sort((a, b) => a.date.localeCompare(b.date));
 
       const data: ChartPoint[] = [];
@@ -543,6 +604,8 @@ export default function PriceResearchPanel() {
 
     // Mantém 1 subcategoria para registro (simples e direto)
     const targetSubcategoryId = selectedSubcategoryIds[0];
+    const subName =
+      selectedCategory.subcategories.find((s) => s.id === targetSubcategoryId)?.name ?? targetSubcategoryId;
 
     const newEntry: PriceEntry = {
       id: `${Date.now()}`,
@@ -551,6 +614,7 @@ export default function PriceResearchPanel() {
       price: value,
       date,
       store: store.trim() || undefined,
+      itemName: subName, // salva nome para aparecer no histórico
     };
 
     setEntries((prev) => [newEntry, ...prev]);
@@ -565,10 +629,6 @@ export default function PriceResearchPanel() {
 
     // Grava no Supabase (sem dual-write para não duplicar no localStorage)
     try {
-      const subName =
-        selectedCategory.subcategories.find((s) => s.id === targetSubcategoryId)?.name ??
-        targetSubcategoryId;
-
       await savePriceEntryToSupabase({
         categoryName: selectedCategory.name,
         subcategoryName: subName,
@@ -815,9 +875,9 @@ export default function PriceResearchPanel() {
           title="Variação vs anterior"
           value={
             variation
-              ? `${variation.diff > 0 ? "+" : ""}${formatCurrencyBRL(variation.diff)} (${variation.pct > 0 ? "+" : ""}${variation.pct.toFixed(
-                  1,
-                )}%)`
+              ? `${variation.diff > 0 ? "+" : ""}${formatCurrencyBRL(variation.diff)} (${
+                  variation.pct > 0 ? "+" : ""
+                }${variation.pct.toFixed(1)}%)`
               : "—"
           }
           helper={
@@ -839,7 +899,11 @@ export default function PriceResearchPanel() {
         <MetricsCard
           title="Maior / menor preço"
           value={minEntry && maxEntry ? `${formatCurrencyBRL(minEntry.price)} · ${formatCurrencyBRL(maxEntry.price)}` : "—"}
-          helper={minEntry && maxEntry ? `${formatShortDate(minEntry.date)} · ${formatShortDate(maxEntry.date)}` : "Registre mais preços para ver a faixa histórica."}
+          helper={
+            minEntry && maxEntry
+              ? `${formatShortDate(minEntry.date)} · ${formatShortDate(maxEntry.date)}`
+              : "Registre mais preços para ver a faixa histórica."
+          }
         />
       </div>
 
@@ -1075,6 +1139,7 @@ export default function PriceResearchPanel() {
                     <th className="py-1 text-left">Data</th>
                     <th className="py-1 text-left">Categoria</th>
                     <th className="py-1 text-left">Subcategoria</th>
+                    <th className="py-1 text-left">Produto / Marca</th>
                     <th className="py-1 text-left">Mercado/Posto</th>
                     <th className="py-1 text-right">Preço</th>
                     <th className="py-1 text-right">Ações</th>
@@ -1084,12 +1149,22 @@ export default function PriceResearchPanel() {
                 <tbody className="divide-y divide-slate-800">
                   {filteredEntries.slice(0, historyLimit).map((entry) => {
                     const cat = categories.find((c) => c.id === entry.categoryId);
-                    const sub = cat?.subcategories.find((s) => s.id === entry.subcategoryId);
+                    const sub = cat?.subcategories.find(
+                      (s) => s.id === entry.subcategoryId || s.name === entry.subcategoryId,
+                    );
+                    const itemName =
+                      entry.itemName ??
+                      (entry as any).itemDescription ??
+                      (entry as any).priceItemName ??
+                      sub?.name ??
+                      entry.subcategoryId;
+
                     return (
                       <tr key={entry.id}>
                         <td className="py-1 text-slate-200">{formatShortDate(entry.date)}</td>
                         <td className="py-1 text-slate-300">{cat?.name ?? entry.categoryId}</td>
                         <td className="py-1 text-slate-300">{sub?.name ?? entry.subcategoryId}</td>
+                        <td className="py-1 text-slate-300">{itemName}</td>
                         <td className="py-1 text-slate-300">{entry.store ?? "-"}</td>
                         <td className="py-1 text-right text-slate-100">{formatCurrencyBRL(entry.price)}</td>
                         <td className="py-1 text-right text-[11px]">
@@ -1097,7 +1172,11 @@ export default function PriceResearchPanel() {
                             <button type="button" className="text-sky-300 hover:text-sky-200" onClick={() => handleEditEntry(entry)}>
                               Editar
                             </button>
-                            <button type="button" className="text-rose-300 hover:text-rose-200" onClick={() => handleDeleteEntry(entry.id)}>
+                            <button
+                              type="button"
+                              className="text-rose-300 hover:text-rose-200"
+                              onClick={() => handleDeleteEntry(entry.id)}
+                            >
                               Excluir
                             </button>
                           </div>
@@ -1137,7 +1216,9 @@ export default function PriceResearchPanel() {
                   {categories.find((c) => c.id === editingEntry.categoryId)?.name ?? editingEntry.categoryId} ·{" "}
                   {categories
                     .find((c) => c.id === editingEntry.categoryId)
-                    ?.subcategories.find((s) => s.id === editingEntry.subcategoryId)?.name ?? editingEntry.subcategoryId}
+                    ?.subcategories.find(
+                      (s) => s.id === editingEntry.subcategoryId || s.name === editingEntry.subcategoryId,
+                    )?.name ?? editingEntry.subcategoryId}
                 </p>
               </div>
 

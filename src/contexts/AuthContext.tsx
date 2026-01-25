@@ -15,6 +15,7 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
+  signOutAll: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -65,13 +66,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth`,
+      },
     });
+
     if (error) return { error: error.message };
     return {};
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
+  };
+
+  const signOutAll = async () => {
+    // Supabase JS v2 aceita escopo global para invalidar em todos os dispositivos
+    await supabase.auth.signOut({ scope: "global" } as any);
   };
 
   const value: AuthContextValue = {
@@ -81,6 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signIn,
     signUp,
     signOut,
+    signOutAll,
   };
 
   return (

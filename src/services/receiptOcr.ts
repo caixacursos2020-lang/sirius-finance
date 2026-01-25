@@ -1,7 +1,7 @@
 import Tesseract from "tesseract.js";
 import { parseReceiptText, type ParsedReceipt } from "../utils/receiptParser";
 import { type Receipt, type ReceiptItem, type ReceiptSummary } from "../types/finance";
-import { processReceiptWithVeryfi } from "./veryfiApi";
+import { scanReceiptWithVeryfi } from "./veryfiClient";
 
 type ParsedReceiptLineItem = {
   id?: string | number;
@@ -148,7 +148,7 @@ export async function readReceiptFromImage(file: File): Promise<Receipt> {
 }
 
 export async function readReceiptViaVeryfi(file: File): Promise<Receipt> {
-  const summary = await processReceiptWithVeryfi(file);
+  const summary = await scanReceiptWithVeryfi(file);
   return buildReceiptFromVeryfiSummary(summary);
 }
 

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { supabase } from "../supabaseClient";
 import { useAuth } from "../contexts/AuthContext";
 
 type Mode = "login" | "signup";
@@ -8,6 +9,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const { signIn, signUp } = useAuth();
@@ -18,6 +20,7 @@ export default function AuthPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     setLoading(true);
 
     const action = mode === "login" ? signIn : signUp;
@@ -25,10 +28,35 @@ export default function AuthPage() {
 
     if (error) {
       setError(error);
+    } else if (mode === "signup") {
+      setInfo(
+        "Conta criada! Se a verificação de e-mail estiver ativa no servidor, confirme o e-mail antes de acessar em outros aparelhos."
+      );
     }
 
     setLoading(false);
   }
+
+  const handleForgotPassword = async () => {
+    setError(null);
+    setInfo(null);
+    if (!email) {
+      setError("Informe seu e-mail para receber o link de redefinição.");
+      return;
+    }
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth`,
+    });
+    if (error) {
+      setError(error.message);
+    } else {
+      setInfo(
+        "Enviamos um e-mail com instruções para redefinir sua senha. Verifique a caixa de entrada e spam."
+      );
+    }
+    setLoading(false);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-50">
@@ -66,6 +94,11 @@ export default function AuthPage() {
         {error && (
           <div className="mb-4 text-sm text-red-400 bg-red-900/30 border border-red-700 rounded-lg px-3 py-2">
             {error}
+          </div>
+        )}
+        {info && (
+          <div className="mb-4 text-sm text-emerald-300 bg-emerald-900/20 border border-emerald-700 rounded-lg px-3 py-2">
+            {info}
           </div>
         )}
 
@@ -110,6 +143,23 @@ export default function AuthPage() {
               ? "Entrar"
               : "Criar conta"}
           </button>
+
+          {mode === "login" && (
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="mt-3 w-full text-[12px] text-sky-400 hover:text-sky-300 underline underline-offset-2"
+              disabled={loading}
+            >
+              Esqueci a senha / Redefinir acesso
+            </button>
+          )}
+
+          <p className="text-[11px] text-slate-500 text-center mt-3">
+            Dica: use o mesmo e-mail e senha em qualquer dispositivo. Se não
+            conseguir entrar, verifique se o e-mail foi confirmado ou redefina
+            a senha.
+          </p>
         </form>
       </div>
     </div>

@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, FormEvent } from "react";
+import { useState, useEffect, useMemo } from "react";
+import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Tag, CheckCircle2, Store, X, CreditCard, Banknote, Smartphone, Wallet, AlertCircle, RefreshCw, Settings, ArrowLeft, FileText } from "lucide-react";
+import { CheckCircle2, Store, X, CreditCard, Banknote, Smartphone, Wallet, AlertCircle, RefreshCw, Settings, ArrowLeft, FileText } from "lucide-react";
 
 import { useFinance } from "../contexts/FinanceContext";
 import { useCategories } from "../contexts/CategoriesContext";

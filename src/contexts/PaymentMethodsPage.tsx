@@ -1,10 +1,14 @@
-﻿import { useState } from "react";
-import { useFinance, type PaymentMethod, type PaymentMethodType } from "../contexts/FinanceContext";
+import { useState } from "react";
+import {
+  useFinance,
+  type PaymentMethod,
+  type PaymentMethodType,
+} from "../contexts/FinanceContext";
 
 const PAYMENT_TYPES: { value: PaymentMethodType; label: string }[] = [
   { value: "dinheiro", label: "Dinheiro" },
   { value: "pix", label: "Pix" },
-  { value: "debito", label: "Débito" },
+  { value: "debito", label: "Cartão de débito" },
   { value: "credito", label: "Crédito" },
   { value: "outro", label: "Outro" },
 ];
@@ -87,8 +91,12 @@ export default function PaymentMethodsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Formas de Pagamento</h1>
-          <p className="text-sm text-slate-400">Gerencie seus cartões, contas e meios de pagamento.</p>
+          <h1 className="text-2xl font-semibold text-slate-100">
+            Formas de Pagamento
+          </h1>
+          <p className="text-sm text-slate-400">
+            Gerencie seus cartões, contas e meios de pagamento.
+          </p>
         </div>
         <button
           onClick={() => handleOpenModal()}
@@ -119,7 +127,9 @@ export default function PaymentMethodsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-slate-100">{pm.name}</h3>
-                    <p className="text-xs text-slate-400 capitalize">{pm.type}</p>
+                    <p className="text-xs text-slate-400 capitalize">
+                      {pm.type}
+                    </p>
                   </div>
                 </div>
                 {!pm.active && (
@@ -129,7 +139,9 @@ export default function PaymentMethodsPage() {
                 )}
               </div>
               {pm.description && (
-                <p className="mt-3 text-sm text-slate-400 line-clamp-2">{pm.description}</p>
+                <p className="mt-3 text-sm text-slate-400 line-clamp-2">
+                  {pm.description}
+                </p>
               )}
             </div>
 
@@ -174,27 +186,40 @@ export default function PaymentMethodsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-6 shadow-2xl">
             <h2 className="mb-4 text-lg font-semibold text-slate-100">
-              {editingId ? "Editar Forma de Pagamento" : "Nova Forma de Pagamento"}
+              {editingId
+                ? "Editar Forma de Pagamento"
+                : "Nova Forma de Pagamento"}
             </h2>
-            
+
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-xs text-slate-400">Nome</label>
+                <label className="mb-1 block text-xs text-slate-400">
+                  Nome
+                </label>
                 <input
                   className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Ex: Nubank Crédito"
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  placeholder="Ex: Cartão de débito Nubank"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1 block text-xs text-slate-400">Tipo</label>
+                  <label className="mb-1 block text-xs text-slate-400">
+                    Tipo
+                  </label>
                   <select
                     className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                     value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as PaymentMethodType })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        type: e.target.value as PaymentMethodType,
+                      })
+                    }
                   >
                     {PAYMENT_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>
@@ -204,26 +229,36 @@ export default function PaymentMethodsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-slate-400">Cor</label>
+                  <label className="mb-1 block text-xs text-slate-400">
+                    Cor
+                  </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
                       className="h-9 w-12 cursor-pointer rounded border border-slate-800 bg-transparent p-0.5"
                       value={formData.color}
-                      onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, color: e.target.value })
+                      }
                     />
-                    <span className="text-xs text-slate-500">{formData.color}</span>
+                    <span className="text-xs text-slate-500">
+                      {formData.color}
+                    </span>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-xs text-slate-400">Descrição (opcional)</label>
+                <label className="mb-1 block text-xs text-slate-400">
+                  Descrição (opcional)
+                </label>
                 <textarea
                   className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-500 focus:outline-none"
                   rows={2}
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, description: e.target.value })
+                  }
                 />
               </div>
 

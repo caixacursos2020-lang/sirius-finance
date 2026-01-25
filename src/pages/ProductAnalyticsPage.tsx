@@ -1,4 +1,3 @@
-import React from "react";
 import PriceResearchPanel from "../components/prices/PriceResearchPanel";
 import { ArrowLeft, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";

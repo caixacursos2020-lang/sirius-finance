@@ -8,6 +8,9 @@ import { FinanceProvider } from "./contexts/FinanceContext";
 import { CategoriesProvider } from "./contexts/CategoriesContext";
 import { IncomeSourcesProvider } from "./contexts/IncomeSourcesContext";
 import { SupplyPricesProvider } from "./contexts/SupplyPricesContext";
+import { runLocalMigrations } from "./boot/migrations";
+
+runLocalMigrations();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

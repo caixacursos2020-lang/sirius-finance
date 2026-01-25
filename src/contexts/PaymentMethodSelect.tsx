@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, FormEvent } from "react";
+import { useState, useEffect, useMemo } from "react";
+import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Tag, CheckCircle2, Plus, Store, Save, X, CreditCard, Banknote, Smartphone, Wallet } from "lucide-react";
 

@@ -93,6 +93,7 @@ interface FinanceContextValue {
     mode: "aggregate" | "perItem";
     defaultCategoryId?: string;
     categoryNameById?: Record<string, string>;
+    paymentMethodId?: string | null;
   }) => Promise<{ error?: string }>;
 
   addBankAccount: (
@@ -216,6 +217,14 @@ const defaultPaymentMethods: PaymentMethod[] = [
     name: "Pix",
     type: "pix",
     color: "#22c55e",
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "pm-debito",
+    name: "Cartão de débito",
+    type: "debito",
+    color: "#0ea5e9",
     active: true,
     createdAt: new Date().toISOString(),
   },
@@ -487,15 +496,27 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     });
 
     const mappedReceipts: Receipt[] = (receiptRows ?? []).map((row: any) => {
-      const items = (itemsByReceipt.get(row.id) ?? []).map((it) => ({
-        id: it.id,
-        description: it.description ?? "",
-        quantity: it.quantity ?? 1,
-        unitPrice: it.unit_price ?? undefined,
-        total: Number(it.total ?? 0),
-        suggestedCategoryId: it.suggested_category_id ?? undefined,
-        suggestedCategoryName: it.suggested_category_name ?? undefined,
-      }));
+      const items = (itemsByReceipt.get(row.id) ?? []).map((it) => {
+        const quantityRaw = Number(it.quantity ?? 1);
+        const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+        const total = Number(it.total ?? 0);
+        const unitPrice =
+          it.unit_price !== null && it.unit_price !== undefined
+            ? Number(it.unit_price)
+            : quantity > 0
+              ? total / quantity
+              : total;
+
+        return {
+          id: it.id,
+          description: it.description ?? "",
+          quantity,
+          unitPrice: Number.isFinite(unitPrice) ? unitPrice : total,
+          total,
+          suggestedCategoryId: it.suggested_category_id ?? undefined,
+          suggestedCategoryName: it.suggested_category_name ?? undefined,
+        };
+      });
 
       return {
         id: row.id,
@@ -856,8 +877,15 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     mode: "aggregate" | "perItem";
     defaultCategoryId?: string;
     categoryNameById?: Record<string, string>;
+    paymentMethodId?: string | null;
   }): Promise<{ error?: string }> => {
-    const { receipt, mode, defaultCategoryId, categoryNameById } = options;
+    const {
+      receipt,
+      mode,
+      defaultCategoryId,
+      categoryNameById,
+      paymentMethodId,
+    } = options;
 
     if (!user) {
       console.error(
@@ -954,6 +982,10 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         recurrence_day: null,
         observation: null,
         receipt_store: normalizedReceipt.storeName ?? null,
+        // Marca que esta despesa veio de um cupom (no modo agregado).
+        // Obs: o schema atual do Supabase não possui `receipt_id` na tabela `expenses` (PGRST204),
+        // então não vinculamos por coluna. Os itens ficam salvos em `receipts/receipt_items`.
+        is_receipt: mode === "aggregate",
         fuel_liters: null,
         fuel_price_per_liter: null,
         fuel_station: null,
@@ -971,7 +1003,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
           description,
           amount: receiptTotal,
           category: defaultCategoryName,
-          payment_method: null,
+          payment_method: paymentMethodId ?? null,
         });
       } else {
         normalizedReceipt.items.forEach((item) => {
@@ -988,7 +1020,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
             description: item.description,
             amount: safeTotal,
             category: itemCategoryName,
-            payment_method: null,
+            payment_method: paymentMethodId ?? null,
           });
         });
       }
@@ -1158,19 +1190,21 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
     if (Object.keys(updatePayload).length === 0) return;
 
-    supabase
-      .from("expenses")
-      .update(updatePayload)
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .then(({ error }) => {
+    (async () => {
+      try {
+        const { error } = await supabase
+          .from("expenses")
+          .update(updatePayload)
+          .eq("id", id)
+          .eq("user_id", user.id);
+
         if (error) {
           console.error("Erro ao atualizar expense no Supabase:", error);
         }
-      })
-      .catch((err) => {
+      } catch (err: unknown) {
         console.error("Erro inesperado ao atualizar expense:", err);
-      });
+      }
+    })();
   };
 
   const updateExpenseStatus = (id: string, status: ExpenseStatus) => {
@@ -1585,3 +1619,4 @@ export type {
   SupplyVariantId,
   SupplyPriceSample,
 };
+

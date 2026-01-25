@@ -4,13 +4,17 @@ import { supabase } from "../supabaseClient";
 /**
  * Registro simplificado usado no Painel de Pesquisa de Preços
  * e salvo no localStorage.
+ *
+ * Aqui agora vamos guardar também o "nome do item" como subcategoryId
+ * (ex.: "Coxa e sobrecoxa Sadia 1kg") para você conseguir diferenciar
+ * marcas dentro da mesma categoria.
  */
 export type LocalPriceEntry = {
   id: string;
-  categoryId: string;
-  subcategoryId: string;
+  categoryId: string;      // nome da categoria da pesquisa (ex.: "Carne de frango")
+  subcategoryId: string;   // nome do item da pesquisa (ex.: "Coxa e sobrecoxa Sadia 1kg")
   price: number;
-  date: string; // yyyy-mm-dd
+  date: string;            // yyyy-mm-dd
   store: string | null;
 };
 
@@ -77,12 +81,12 @@ export function saveLocalPriceEntries(entries: LocalPriceEntry[]): void {
 // ---------------------------------------------------------
 
 export type PriceEntrySupabaseInput = {
-  categoryName: string;
-  subcategoryName: string;
+  categoryName: string;     // nome da categoria de pesquisa
+  subcategoryName: string;  // nome do item da pesquisa
   price: number;
-  date: string; // yyyy-mm-dd
+  date: string;             // yyyy-mm-dd
   store?: string | null;
-  // extras opcionais (ignorados nos inserts)
+  // extras opcionais (não entram diretamente nos inserts)
   categoryId?: string;
   subcategoryId?: string;
   expenseCategoryId?: string;
@@ -206,8 +210,13 @@ export async function savePriceEntryToSupabase(
 
     const userId = userResult.user.id;
 
-    const categoryName = (input.categoryName ?? "").toString().trim() || "Categoria";
-    const subcategoryName = (input.subcategoryName ?? "").toString().trim() || "Item";
+    const categoryName =
+      (input.categoryName ?? "").toString().trim() || "Categoria";
+
+    // AQUI é onde o "nome do item" é garantido:
+    const subcategoryName =
+      (input.subcategoryName ?? "").toString().trim() || "Item";
+
     const price = Number(input.price) || 0;
     const priceSafe = Number.isFinite(price) && price > 0 ? price : 0;
     const date =
@@ -294,6 +303,7 @@ export async function savePriceEntryDualWrite(rawInput: any): Promise<void> {
         ? rawInput.date
         : new Date().toISOString().slice(0, 10);
 
+    // Nome da categoria de pesquisa (ex.: "Carne de frango")
     const categoryName =
       rawInput?.categoryName ??
       rawInput?.category ??
@@ -301,14 +311,20 @@ export async function savePriceEntryDualWrite(rawInput: any): Promise<void> {
       rawInput?.categoryId ??
       "Categoria";
 
+    // Nome do item da pesquisa (ex.: "Coxa e sobrecoxa Sadia 1kg")
+    // Aqui a prioridade é:
+    // 1) subcategoryName explícito
+    // 2) priceItemName
+    // 3) itemDescription/description (do cupom)
+    // 4) outros campos de subcategoria
     const subcategoryName =
       rawInput?.subcategoryName ??
-      rawInput?.subCategoryName ??
       rawInput?.priceItemName ??
-      rawInput?.subcategory ??
-      rawInput?.subcategoryId ??
       rawInput?.itemDescription ??
       rawInput?.description ??
+      rawInput?.subCategoryName ??
+      rawInput?.subcategory ??
+      rawInput?.subcategoryId ??
       "Item";
 
     const store =
@@ -325,6 +341,7 @@ export async function savePriceEntryDualWrite(rawInput: any): Promise<void> {
     try {
       const existing = getLocalPriceEntries();
 
+      // No localStorage, categoryId = nome da categoria, subcategoryId = nome do item
       const localCategoryId =
         String(
           rawInput?.categoryId ??
@@ -338,6 +355,9 @@ export async function savePriceEntryDualWrite(rawInput: any): Promise<void> {
           rawInput?.subcategoryId ??
             rawInput?.subCategoryId ??
             rawInput?.subcategoryName ??
+            rawInput?.priceItemName ??
+            rawInput?.itemDescription ??
+            rawInput?.description ??
             subcategoryName
         ) || "item";
 
