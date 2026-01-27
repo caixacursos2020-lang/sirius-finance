@@ -60,22 +60,26 @@ export default function PaymentMethodsPage() {
     setMessage(null);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim()) {
       setMessage("O nome é obrigatório.");
       return;
     }
 
     if (editingId) {
-      updatePaymentMethod(editingId, formData);
+      await updatePaymentMethod(editingId, formData);
     } else {
-      addPaymentMethod(formData);
+      const result = await addPaymentMethod(formData);
+      if ("error" in result) {
+        setMessage("Erro ao adicionar: " + result.error);
+        return;
+      }
     }
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id: string) => {
-    const result = deletePaymentMethod(id);
+  const handleDelete = async (id: string) => {
+    const result = await deletePaymentMethod(id);
     if (!result.success) {
       alert(result.reason);
     }
